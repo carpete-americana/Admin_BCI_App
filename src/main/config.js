@@ -1,5 +1,5 @@
 // DEBUG: auto-detecção em desenvolvimento, forçado a false em produção
-const DEBUG = true;
+const DEBUG = false;
 
 // Admin Frontend API configuration
 const API_CONFIG = {
@@ -15,25 +15,10 @@ const API_CONFIG = {
   CACHE_BUSTER: "",                       // Sem versioning - usa hashes para validação
 };
 
-// Admin routes - páginas específicas de administração
-const routes = {
-  dashboard: { title: "Dashboard", path: "dashboard", icon: "fa-chart-bar" },
-  documents: { title: "Documentos", path: "documents", icon: "fa-file-alt" },
-  users: { title: "Utilizadores", path: "users", icon: "fa-users" },
-  profiles: { title: "Perfis", path: "profiles", icon: "fa-id-card" },
-  casinoaccounts: { title: "Contas Casino", path: "casinoaccounts", icon: "fa-dice" },
-  casinoprofit: { title: "Lucros Casino", path: "casinoprofit", icon: "fa-coins" },
-  withdrawals: { title: "Levantamentos", path: "withdrawals", icon: "fa-money-bill-wave" },
-  transactions: { title: "Transações", path: "transactions", icon: "fa-exchange-alt" },
-  logs: { title: "Logs", path: "logs", icon: "fa-terminal" },
-  email: { title: "Email", path: "email", icon: "fa-envelope" },
-  settings: { title: "Definições", path: "settings", icon: "fa-cog" },
-  reports: { title: "Relatórios", path: "reports", icon: "fa-chart-pie" },
-  notifications: { title: "Notificações", path: "notifications", icon: "fa-bell" }
-};
+// Admin routes are now loaded from Frontend API via sidebar.js
+// Access via window.adminRoutes in renderer after loadAllAssetsJS()
 
 module.exports = {
   API_CONFIG,
-  DEBUG,
-  routes
+  DEBUG
 };

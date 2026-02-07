@@ -2,7 +2,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld("electronAPI", {
-    loadRouteConfig: () => ipcRenderer.invoke("routes:getConfig"),
     joinPaths: (...args) => ipcRenderer.invoke("path:join", ...args),
     fileExists: (path) => ipcRenderer.invoke("fs:fileExists", path),
     readFile: (path) => ipcRenderer.invoke("fs:readFile", path),

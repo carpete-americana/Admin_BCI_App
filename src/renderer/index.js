@@ -186,7 +186,11 @@ export async function loadPage(route) {
     // CSS and JS
     await injectCSSFromRoute(route);
     await executePageScript(route);
-    updateActiveMenu(route);
+    if (window.updateActiveMenu) window.updateActiveMenu(route);
+    
+    // Update user info (name, email) via shared header-widgets.js
+    if (window.updateGlobalUserInfo) await window.updateGlobalUserInfo();
+    
     window.history.pushState({}, '', `#${route}`);
     
     // Track page load performance
@@ -199,50 +203,6 @@ export async function loadPage(route) {
   } finally {
     await hideLoading();
   }
-}
-
-/* Menu generation - Admin specific routes */
-function generateSidebarMenu() {
-  const menu = document.getElementById('sidebar-menu');
-  if (!menu) return;
-  const items = [
-    { category: 'Painel' },
-    { route: 'dashboard', name: routes.dashboard?.title || 'Dashboard', icon: 'fa-chart-bar' },
-    { category: 'Gestão' },
-    { route: 'users', name: routes.users?.title || 'Utilizadores', icon: 'fa-users' },
-    { route: 'casinos', name: routes.casinos?.title || 'Casinos', icon: 'fa-dice' },
-    { route: 'transactions', name: routes.transactions?.title || 'Transações', icon: 'fa-exchange-alt' },
-    { category: 'Relatórios' },
-    { route: 'reports', name: routes.reports?.title || 'Relatórios', icon: 'fa-file-alt' },
-    { category: 'Sistema' },
-    { route: 'settings', name: routes.settings?.title || 'Definições', icon: 'fa-cog' },
-  ];
-  let out = '<ul>';
-  for (const it of items) {
-    if (it.category) out += `<li><span class="category">${it.category}</span></li>`;
-    else {
-      const isActive = window.location.hash.substring(1) === it.route || (!window.location.hash && it.route === 'dashboard');
-      out += `<li><a href="#${it.route}" class="${isActive ? 'active' : ''}" data-route="${it.route}"><i class="menu-icon fas ${it.icon}"></i> ${it.name}</a></li>`;
-    }
-  }
-  out += '</ul>';
-  menu.innerHTML = out;
-  menu.querySelectorAll('a').forEach(a => {
-    a.addEventListener('click', (e) => {
-      const r = a.getAttribute('data-route');
-      if (r) {
-        e.preventDefault();
-        navigateTo(r);
-      }
-    });
-  });
-}
-
-/* Update active menu */
-function updateActiveMenu(route) {
-  document.querySelectorAll('#sidebar-menu a').forEach(link => {
-    link.classList.toggle('active', link.getAttribute('data-route') === route);
-  });
 }
 
 /* navigateTo */
@@ -395,8 +355,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Authenticated: load global asset CSS
     await loadAllAssetsCSS().catch(e => console.warn('loadAllAssetsCSS failed', e));
 
-    routes = await window.electronAPI.loadRouteConfig();
-    generateSidebarMenu();
+    // Routes loaded from Frontend API via sidebar.js
+    routes = window.adminRoutes || {};
+    if (window.generateSidebarMenu) window.generateSidebarMenu();
     
     // Hide content while loading dashboard to prevent flash
     document.body.style.opacity = '0';

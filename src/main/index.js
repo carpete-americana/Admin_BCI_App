@@ -2,7 +2,7 @@
 require('dotenv').config();
 const { app, globalShortcut, ipcMain, BrowserWindow } = require('electron');
 const ElectronStorage = require('../../js/storage');
-const { routes, DEBUG } = require('./config');
+const { DEBUG } = require('./config');
 const cache = require('./cache');
 const updater = require('./updater');
 const window = require('./window');
@@ -24,8 +24,7 @@ ipcMain.handle('assets:listCss', cache.listCssFiles);
 ipcMain.handle('assets:listJs', cache.listJsFiles);
 ipcMain.handle('assets:getLocal', (e, path) => assets.getAssetDataUrl(path));
 
-// IPC Handlers - Routes and Config
-ipcMain.handle('routes:getConfig', () => routes);
+// IPC Handlers - Routes and Config (routes loaded from Frontend API via sidebar.js)
 ipcMain.handle('app:getDebugMode', () => DEBUG);
 ipcMain.handle('app:getVersion', () => require('../../package.json').version);
 ipcMain.handle('security:validateUrl', (e, url) => security.isUrlSafe(url));
