@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Servidor Indisponível | BCi Admin</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+
+    @keyframes slide {
+    0% {
+      transform: translateX(-25%);
+    }
+    100% {
+      transform: translateX(25%);
+    }
+}
+  
+    :root {
+      --primary-color: #13005A;
+      --primary-hover-color: #0f0047;
+      --secondary-color: #191878;
+      --text-color: #333333;
+      --border-color: #eaedf1;
+      --warning-color: #ea580c;
+    }
+    * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: "Poppins", sans-serif;
+}
+
+body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    padding: 20px;
+    overflow: hidden;
+}
+
+.bg {
+    animation: slide 10s ease-in-out infinite alternate;
+    background-image: linear-gradient(-60deg, var(--primary-color) 50%, var(--secondary-color) 50%);
+    bottom: 0;
+    left: -50%;
+    opacity: 1;
+    position: fixed;
+    right: -50%;
+    top: 0;
+    z-index: -1;
+}
+  
+
+.bg, .bg2, .bg3 {
+    mix-blend-mode: lighten;
+}
+
+
+.container {
+    width: 100%;
+    max-width: 500px;
+}
+
+    .container { width:100%; max-width:500px; margin:0 auto; padding:20px; height:100vh; display:flex; align-items:center; justify-content:center; }
+    .form-box { background:#fff; padding:40px; border-radius:15px; box-shadow:0 0 20px rgba(0,0,0,0.2); text-align:center; }
+    h2 { margin:0 0 12px; color: var(--primary-color); font-size:24px; font-weight:700; }
+    .subtitle { color: var(--warning-color); font-size:14px; margin:0 0 20px; font-weight:600; }
+    p { color:#555; font-size:15px; margin:0 0 24px; line-height:1.6; }
+    .status-info { background:#f5f5f5; padding:15px; border-radius:8px; margin:20px 0; border-left:4px solid var(--warning-color); text-align:left; }
+    .status-info strong { display:block; color: var(--primary-color); margin-bottom:8px; }
+    .status-info p { margin:0; font-size:14px; }
+    .actions { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+    .btn { background: var(--primary-color); color:#fff; border:none; border-radius:7px; padding:12px 24px; font-size:14px; cursor:pointer; transition:all 0.3s ease; display:flex; align-items:center; gap:8px; }
+    .btn:hover { background: var(--primary-hover-color); transform:translateY(-2px); }
+    .btn.secondary { background:#334155; color:#e2e8f0; }
+    .btn.secondary:hover { background:#475569; }
+    .btn.retry { background: var(--primary-color); }
+    .btn.retry:hover { background: var(--primary-hover-color); }
+    .tip { color:#777; font-size:13px; margin-top:20px; padding-top:20px; border-top:1px solid #eee; }
+    .error-icon { 
+      width:60px; 
+      height:60px; 
+      border-radius:12px; 
+      background: linear-gradient(135deg, var(--primary-hover-color), var(--secondary-color));
+      display:inline-flex; 
+      align-items:center; 
+      justify-content:center; 
+      color:#fff; 
+      font-weight:700; 
+      margin-bottom:16px;
+      font-size:28px;
+    }
+    .spinner {
+      display:inline-block;
+      width:16px;
+      height:16px;
+      border:2px solid rgba(255,255,255,0.3);
+      border-radius:50%;
+      border-top-color:#fff;
+      animation:spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform:rotate(360deg); }
+    }
+    .checking-status {
+      color: var(--warning-color);
+      font-size: 13px;
+      margin-top: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+  </style>
+</head>
+<body>
+    <div class="bg"></div>
+    <div class="bg bg2"></div>
+    <div class="bg bg3"></div>
+  <div class="container">
+    <div class="form-box">
+      <div class="error-icon">
+        <i class="fas fa-server"></i>
+      </div>
+      <h2>Servidor Indisponível</h2>
+      <p class="subtitle">O servidor está temporariamente offline</p>
+      <p>Desculpa! O servidor de backend está indisponível no momento. Estamos a trabalhar para restaurar o serviço o mais rápido possível.</p>
+      
+      <div class="status-info">
+        <strong><i class="fas fa-info-circle"></i> O que está a acontecer?</strong>
+        <p>O servidor deixou de responder. A aplicação BCi Admin continuará a tentar conectar-se automaticamente.</p>
+      </div>
+
+      <div class="actions">
+        <button id="retryBtn" class="btn retry">
+          <i class="fas fa-redo-alt"></i>
+          <span>Tentar novamente</span>
+        </button>
+        <button id="closeBtn" class="btn secondary">
+          <i class="fas fa-times"></i>
+          <span>Fechar</span>
+        </button>
+      </div>
+
+      <div class="checking-status">
+        <div class="spinner"></div>
+        <span>A verificar conexão...</span>
+      </div>
+
+      <div class="tip">
+        <strong><i class="fas fa-lightbulb"></i> Sugestão:</strong> À espera há muito tempo? Considera reiniciar a aplicação ou verificar a sua conexão à internet.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      const retryBtn = document.getElementById('retryBtn');
+      const closeBtn = document.getElementById('closeBtn');
+      const statusEl = document.querySelector('.checking-status');
+      let autoRetryInterval = null;
+
+      if (retryBtn) {
+        retryBtn.addEventListener('click', () => {
+          performRetry();
+        });
+      }
+
+      if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+          if (window.electronAPI) {
+            window.close();
+          }
+        });
+      }
+
+      const performRetry = async () => {
+        try {
+          if (window.electronAPI && typeof window.electronAPI.checkServerStatus === 'function') {
+            const serverAvailable = await window.electronAPI.checkServerStatus();
+            if (serverAvailable) {
+              // API está online, navegar de volta
+              if (window.electronAPI && typeof window.electronAPI.navigate === 'function') {
+                window.electronAPI.navigate('index.html');
+              }
+              clearInterval(autoRetryInterval);
+              return;
+            }
+          }
+        } catch (e) {
+          console.error('[ADMIN-SERVER-UNAVAILABLE] Erro ao verificar servidor:', e);
+        }
+      };
+
+      // Auto-retry a cada 5 segundos
+      autoRetryInterval = setInterval(performRetry, 5000);
+
+      // Fazer primeira verificação após 2 segundos
+      setTimeout(performRetry, 2000);
+
+      // Limpar intervalo se a janela fechar
+      window.addEventListener('beforeunload', () => {
+        clearInterval(autoRetryInterval);
+      });
+    })();
+  </script>
+</body>
+</html>

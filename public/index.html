@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BCi Admin</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <style>
+        body { transition: opacity 0.5s ease-in-out; }
+    </style>
+</head>
+<body>
+     <!-- Barra Lateral -->
+     <div class="sidebar">
+        <div class="sidebar-header">
+            <img src="https://bcibizz.pt/assets/images/bci-extended.png" alt="Logo BCi Admin">
+        </div>
+        <nav class="sidebar-menu" id="sidebar-menu">
+            <!-- Será preenchido dinamicamente pelo router.js -->
+        </nav>
+    </div>  
+
+<!-- Índicador de atualização - Design Moderno -->
+<div id="update-badge" class="update-notification">
+  <div class="notification-content">
+    <i class="fas fa-cloud-download-alt notification-icon"></i>
+    <div class="notification-text">
+      <span class="notification-title">Nova atualização disponível!</span>
+    </div>
+    <button id="download-update" class="notification-button">
+      <span>Descarregar agora</span>
+      <i class="fas fa-arrow-right button-icon"></i>
+    </button>
+  </div>
+  
+  <!-- Progresso do download -->
+  <div id="download-progress-container" class="download-progress">
+    <div class="progress-header">
+      <span id="progress-info-text">A Descarregar atualização...</span>
+      <span class="progress-percent" id="progress-text">0%</span>
+    </div>
+    <div class="progress-bar-container">
+      <div id="download-progress-bar" class="progress-bar-fill"></div>
+    </div>
+  </div>
+  
+  <!-- Botão de reinicialização -->
+  <button id="restart-button" class="restart-button" style="display: none;">
+    <i class="fas fa-sync-alt"></i>
+    <span>Reiniciar para instalar</span>
+  </button>
+</div>
+
+<script>
+  let DEBUG = false;
+  
+  // Load DEBUG mode from main process
+  (async () => {
+    try {
+      DEBUG = await window.electronAPI.getDebugMode();
+    } catch (e) {
+      console.warn('Could not load DEBUG mode');
+    }
+  })();
+
+  // Mostrar o badge com animação quando houver atualização
+  window.electronAPI.onUpdateAvailable((data) => {
+    DEBUG && console.log('[ADMIN-UPDATE] Update available:', data);
+    const badge = document.getElementById('update-badge');
+    if (!badge) return;
+    badge.style.display = 'block';
+    setTimeout(() => {
+      badge.classList.add('show');
+    }, 100);
+  });
+
+  // Baixar quando clicar
+  document.getElementById('download-update')?.addEventListener('click', () => {
+    DEBUG && console.log('[ADMIN-UPDATE] Starting download');
+    // Mostrar o container de progresso
+    document.getElementById('download-progress-container').style.display = 'block';
+    
+    // Esconder o botão de download enquanto baixa
+    document.getElementById('download-update').style.display = 'none';
+    
+    // Iniciar o download
+    window.electronAPI.downloadUpdate();
+  });
+
+  // Monitorar progresso
+  window.electronAPI.onDownloadProgress((progress) => {
+    const percent = Math.round(progress.percent);
+    DEBUG && console.log('[ADMIN-UPDATE] Download progress:', percent + '%');
+    const bar = document.getElementById('download-progress-bar');
+    const text = document.getElementById('progress-text');
+    if (bar) bar.style.width = `${percent}%`;
+    if (text) text.innerText = `${percent}%`;
+  });
+
+  // Armazenar info do update para usar depois
+  let currentUpdateInfo = null;
+
+  // Quando o download estiver completo
+  window.electronAPI.onUpdateDownloaded((info) => {
+    DEBUG && console.log('[ADMIN-UPDATE] Update downloaded:', info);
+    currentUpdateInfo = info;
+    const bar = document.getElementById('download-progress-bar');
+    const text = document.getElementById('progress-text');
+    const infoText = document.getElementById('progress-info-text');
+    if (bar) bar.style.width = '100%';
+    if (text) text.innerText = '100%';
+    if (infoText) infoText.innerText = 'Atualização pronta!';
+    
+    setTimeout(() => {
+      const restartBtn = document.getElementById('restart-button');
+      if (!restartBtn) return;
+      restartBtn.style.display = 'flex';
+      setTimeout(() => {
+        restartBtn.style.opacity = '1';
+      }, 50);
+    }, 1000);
+  });
+
+  // Tratar erros de update
+  window.electronAPI.onUpdateError((error) => {
+    DEBUG && console.error('[ADMIN-UPDATE] Error:', error);
+    const infoText = document.getElementById('progress-info-text');
+    const container = document.getElementById('download-progress-container');
+    if (infoText) infoText.innerText = 'Erro ao atualizar: ' + error.message;
+    if (container) container.style.display = 'block';
+  });
+
+  // Reiniciar aplicação quando clicar
+  document.getElementById('restart-button')?.addEventListener('click', () => {
+    const btn = document.getElementById('restart-button');
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    DEBUG && console.log('[ADMIN-UPDATE] Installing update and restarting');
+    
+    // Chamar método correto para instalar e atualizar com o caminho do instalador
+    setTimeout(() => {
+      if (currentUpdateInfo && currentUpdateInfo.installerPath) {
+        window.electronAPI.installAndUpdate(currentUpdateInfo.installerPath);
+      } else {
+        console.error('[ADMIN-UPDATE] Installer path not available');
+        window.electronAPI.installAndUpdate(); // Fallback sem path
+      }
+    }, 1500);
+  });
+</script>
+
+    <!-- Cabeçalho -->
+    <header class="main-header">
+        <div class="search-bar">
+        </div>
+        
+        <div class="header-right">
+            <div class="notification" title="Notificações">
+                <i class="fas fa-bell"></i>
+            </div>
+            
+            <div class="user-profile">
+                <span class="user-name">Administrador</span>
+                <div class="avatar-placeholder">
+                    <i class="fas fa-user-shield"></i>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Conteúdo Principal -->
+    <div class="main-content" id="main-content">
+        <!-- O conteúdo será injetado aqui pelo router -->
+    </div>
+
+    <script type="module" src="../src/renderer/index.js"></script>
+
+</body>
+</html>

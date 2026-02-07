@@ -1,0 +1,116 @@
+{
+  "name": "bci-admin",
+  "productName": "BCI Admin",
+  "version": "1.0.0",
+  "description": "Aplicação de administração oficial BCI",
+  "keywords": [
+    "bci",
+    "bizz",
+    "casino",
+    "management",
+    "admin"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "carpete_americana",
+    "email": "support@bcibizz.pt"
+  },
+  "homepage": "https://bcibizz.pt",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/carpete-americana/Admin_BCi_App"
+  },
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electronmon .",
+    "build": "electron-builder",
+    "build:prod": "electron-builder --publish never",
+    "build:release": "electron-builder --publish always"
+  },
+  "dependencies": {
+    "dotenv": "^16.5.0",
+    "electron-log": "^5.4.2",
+    "electron-updater": "^6.6.2",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "electron": "^35.1.4",
+    "electron-builder": "^26.0.12",
+    "electronmon": "^2.0.3",
+    "sharp": "^0.34.5"
+  },
+  "build": {
+    "appId": "pt.bcibizz.AdminApp",
+    "productName": "BCI Admin",
+    "copyright": "Copyright © 2025 BCI Bizz",
+    "afterPack": "./add-icon.js",
+    "files": [
+      "src/**/*",
+      "public/**/*",
+      "js/**/*",
+      "assets/**/*",
+      "package.json",
+      ".env.production"
+    ],
+    "extraResources": [
+      {
+        "from": ".env.production",
+        "to": ".env"
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "carpete-americana",
+        "repo": "Admin_BCi_App"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "icon": "build/app-icon.ico",
+      "requestedExecutionLevel": "asInvoker",
+      "signAndEditExecutable": false,
+      "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "BCI Admin",
+      "installerIcon": "build/app-icon.ico",
+      "uninstallerIcon": "build/app-icon.ico",
+      "license": "LICENSE",
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "target": "dmg",
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+      "category": "public.app-category.finance",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "title": "${productName} ${version}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "artifactName": "${productName}-${version}-linux-${arch}.${ext}",
+      "icon": "build/bci-rounded2.png",
+      "category": "Finance",
+      "maintainer": "carpete_americana"
+    }
+  }
+}
