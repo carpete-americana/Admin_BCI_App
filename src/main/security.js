@@ -37,8 +37,9 @@ const CSP_DIRECTIVES = {
     "https://api.github.com",
     "https://bcibizz.pt"
   ],
-  'frame-src': ["blob:"],
-  'object-src': ["'none'"],
+  'frame-src': ["blob:", "chrome-extension:"],
+  'worker-src': ["blob:", "https://cdn.jsdelivr.net"],
+  'object-src': ["blob:"],
   'base-uri': ["'self'"]
 };
 

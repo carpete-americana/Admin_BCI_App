@@ -1,5 +1,5 @@
 // Window management with state persistence - Admin App
-const { BrowserWindow, ipcMain } = require('electron');
+const { BrowserWindow, ipcMain, screen } = require('electron');
 const path = require('path');
 const ElectronStorage = require('../../js/storage');
 const { DEBUG } = require('./config');
@@ -52,7 +52,8 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       enableRemoteModule: true,
-      webSecurity: true
+      webSecurity: true,
+      plugins: true
     },
   });
 
@@ -163,9 +164,86 @@ function toggleFullscreen() {
   }
 }
 
+// =========================================
+// DETACHED WINDOWS
+// =========================================
+let detachedWindows = new Map();
+let detachedCounter = 0;
+
+function createDetachedWindow(route, title) {
+  const windowId = `${route}_${++detachedCounter}`;
+
+  const { width: screenW, height: screenH } = screen.getPrimaryDisplay().workAreaSize;
+  const w = Math.min(400, screenW);
+  const h = Math.min(420, screenH);
+
+  let icon;
+  try {
+    const iconPath = path.join(__dirname, '../../assets/icons/icon.png');
+    icon = require('electron').nativeImage.createFromPath(iconPath);
+  } catch (e) {
+    DEBUG && console.warn('[DETACH] Could not load app icon:', e.message);
+  }
+
+  const detached = new BrowserWindow({
+    width: w,
+    height: h,
+    minWidth: w,
+    minHeight: h,
+    maxWidth: w,
+    maxHeight: h,
+    resizable: false,
+    alwaysOnTop: true,
+    show: false,
+    icon: icon,
+    title: title || 'BCI Admin',
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: true,
+      webSecurity: true,
+      plugins: true
+    },
+  });
+
+  detached.setMenu(null);
+  detached.loadFile(path.join(__dirname, '../../public/index.html'), {
+    hash: route,
+    query: { detached: 'true' }
+  });
+
+  // Show when ready
+  let shown = false;
+  const showSafely = () => {
+    if (shown) return;
+    shown = true;
+    if (!detached.isDestroyed()) detached.show();
+  };
+
+  ipcMain.once('renderer:ready', showSafely);
+  setTimeout(showSafely, 5000);
+
+  detached.on('closed', () => {
+    detachedWindows.delete(windowId);
+    DEBUG && console.log(`[DETACH] Detached window closed: ${windowId}`);
+  });
+
+  detachedWindows.set(windowId, detached);
+  DEBUG && console.log(`[DETACH] Created detached window: ${windowId}`);
+
+  return detached;
+}
+
+function handleDetachPage(event, route, title) {
+  createDetachedWindow(route, title);
+  return true;
+}
+
 module.exports = {
   createWindow,
   handleNavigate,
   handleLogout,
-  toggleFullscreen
+  toggleFullscreen,
+  handleDetachPage
 };

@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     checkServerStatus: () => ipcRenderer.invoke('app:checkServerStatus'),
     rendererReady: () => ipcRenderer.send('renderer:ready'),
     navigate: (filePath) => ipcRenderer.invoke('navigate', filePath),
+    detachPage: (route, title) => ipcRenderer.invoke('detach-page', route, title),
     clearBrowserCache: () => ipcRenderer.invoke('cache:clearBrowser'),
     
     // Metrics

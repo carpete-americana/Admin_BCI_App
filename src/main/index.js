@@ -46,6 +46,7 @@ if (DEBUG) {
 // IPC Handlers - Navigation and Auth
 ipcMain.handle('navigate', window.handleNavigate);
 ipcMain.handle('logout', window.handleLogout);
+ipcMain.handle('detach-page', window.handleDetachPage);
 
 // IPC Handlers - Cache Management
 ipcMain.handle('cache:clearBrowser', async (e) => {

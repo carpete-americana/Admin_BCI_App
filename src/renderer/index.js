@@ -363,6 +363,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.body.style.opacity = '0';
     
     const initialRoute = window.location.hash.substring(1) || 'dashboard';
+
+    // Detached mode: hide sidebar/header, only show page content
+    const isDetached = new URLSearchParams(window.location.search).get('detached') === 'true';
+    if (isDetached) {
+      document.querySelectorAll('.sidebar, .main-header, #update-badge').forEach(el => {
+        el.style.display = 'none';
+      });
+      const mainContent = document.getElementById('main-content');
+      if (mainContent) {
+        mainContent.style.marginLeft = '0';
+        mainContent.style.width = '100%';
+        mainContent.style.height = '100vh';
+      }
+    }
+
     await loadPage(initialRoute);
     await Utils.notification();
     
