@@ -20,6 +20,7 @@ const CSP_DIRECTIVES = {
   'img-src': [
     "'self'",
     "data:",
+    "blob:",
     "https:",
     "https://bcibizz.pt"
   ],
@@ -36,7 +37,7 @@ const CSP_DIRECTIVES = {
     "https://api.github.com",
     "https://bcibizz.pt"
   ],
-  'frame-src': ["'none'"],
+  'frame-src': ["blob:"],
   'object-src': ["'none'"],
   'base-uri': ["'self'"]
 };
