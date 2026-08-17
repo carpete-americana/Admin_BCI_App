@@ -300,7 +300,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Load global JS assets first (utils/api)
     await loadAllAssetsJS().catch(e => console.warn('loadAllAssetsJS failed', e));
 
-    const session = await Utils.findSession(false);
+    // If Utils failed to load (e.g. rate limited), retry once after a short delay
+    if (!Utils) {
+      console.warn('[INIT] Utils not loaded, retrying in 2s...');
+      await new Promise(r => setTimeout(r, 2000));
+      await loadAllAssetsJS().catch(e => console.warn('loadAllAssetsJS retry failed', e));
+    }
+
+    const session = Utils ? await Utils.findSession(false) : null;
     if (!session) {
       // No session: load login page
       try {
@@ -345,6 +352,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.error('Failed to load login page from repo', err);
         await hideLoading();
         showErrorPage(err, 'login');
+        document.body.style.opacity = '1';
         document.body.classList.add('ready');
         // Still signal ready even on error so window shows
         window.electronAPI.rendererReady && window.electronAPI.rendererReady();
@@ -404,6 +412,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('renderer init error', err);
     await hideLoading();
     showErrorPage(err, 'dashboard');
+    // Ensure body is visible even on error (opacity may have been set to 0)
+    document.body.style.opacity = '1';
     document.body.classList.add('ready');
+    // Signal main process that renderer is ready (error page is still usable)
+    if (window.electronAPI && typeof window.electronAPI.rendererReady === 'function') {
+      window.electronAPI.rendererReady();
+    }
   }
 });

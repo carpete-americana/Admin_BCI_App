@@ -12,6 +12,7 @@ const tray = require('./tray');
 const security = require('./security');
 const metrics = require('./metrics');
 const assets = require('./assets');
+const oddsScraper = require('./odds-scraper');
 
 // IPC Handlers - GitHub Cache
 ipcMain.handle('github-cache:fetch', cache.handleFetch);
@@ -62,6 +63,13 @@ ipcMain.handle('storage:set', (e, k, v) => ElectronStorage.setItem(k, v));
 ipcMain.handle('storage:get', (e, k) => ElectronStorage.getItem(k));
 ipcMain.handle('storage:remove', (e, k) => ElectronStorage.removeItem(k));
 
+// IPC Handlers - Odds Scraper (local)
+ipcMain.handle('odds:get', (e, sports, sites, options) => oddsScraper.getOdds(sports, false, sites, options));
+ipcMain.handle('odds:refresh', (e, sports, sites, options) => oddsScraper.getOdds(sports, true, sites, options));
+ipcMain.handle('odds:sports', () => oddsScraper.getSports());
+ipcMain.handle('odds:clearCache', () => oddsScraper.clearCache());
+ipcMain.handle('odds:progress', () => oddsScraper.getProgress());
+
 // IPC Handler - Check Server Status
 ipcMain.handle('app:checkServerStatus', async () => {
   try {
@@ -74,7 +82,7 @@ ipcMain.handle('app:checkServerStatus', async () => {
     });
     clearTimeout(timeout);
     
-    return response.ok;
+    return response.ok || response.status === 429;
   } catch (e) {
     return false;
   }
@@ -188,6 +196,9 @@ app.on('before-quit', () => {
   
   // Stop all intervals
   cache.stopAllIntervals();
+  
+  // Close odds scraper browser
+  oddsScraper.closeBrowser();
   
   // Unregister shortcuts
   shortcuts.unregisterShortcuts();

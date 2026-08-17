@@ -34,6 +34,11 @@ async function checkForUpdatesViaBackend() {
 
     const response = await fetch(apiUrl);
     if (!response.ok) {
+      // 429 = rate limited, silenciar (não é erro real)
+      if (response.status === 429) {
+        if (DEBUG) console.log('[UPDATER] Rate limited (429), tentando mais tarde...');
+        return;
+      }
       throw new Error(`HTTP ${response.status}`);
     }
 
@@ -339,7 +344,7 @@ objShell.Run "${appExePath}", 0, False`;
 
 // Check for updates (delayed start to avoid startup impact)
 function checkForUpdates() {
-  const checkInterval = DEBUG ? 2 * 60 * 1000 : 60 * 60 * 1000; // 2min em dev, 1h em prod (evita rate limit)
+  const checkInterval = DEBUG ? 5 * 60 * 1000 : 60 * 60 * 1000; // 5min em dev, 1h em prod
   
   const performCheck = async () => {
     try {
