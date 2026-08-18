@@ -9,6 +9,17 @@
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <style>
         body { transition: opacity 0.5s ease-in-out; }
+
+        .app-version-badge {
+            position: absolute;
+            left: 20px;
+            bottom: 12px;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.35);
+            letter-spacing: 0.3px;
+            pointer-events: none;
+            user-select: none;
+        }
     </style>
 </head>
 <body>
@@ -20,7 +31,8 @@
         <nav class="sidebar-menu" id="sidebar-menu">
             <!-- Será preenchido dinamicamente pelo router.js -->
         </nav>
-    </div>  
+        <span class="app-version-badge" id="appVersionBadge"></span>
+    </div>
 
 <!-- Índicador de atualização - Design Moderno -->
 <div id="update-badge" class="update-notification">
@@ -131,6 +143,17 @@
     if (infoText) infoText.innerText = 'Erro ao atualizar: ' + error.message;
     if (container) container.style.display = 'block';
   });
+
+  // Mostrar a versão da app discretamente no canto da sidebar
+  (async () => {
+    try {
+      const version = await window.electronAPI.getVersion();
+      const badge = document.getElementById('appVersionBadge');
+      if (badge && version) badge.textContent = `v${version}`;
+    } catch (e) {
+      console.warn('Could not load app version');
+    }
+  })();
 
   // Reiniciar aplicação quando clicar
   document.getElementById('restart-button')?.addEventListener('click', () => {
