@@ -4,16 +4,40 @@ const { DEBUG } = require('./config');
 // CSP directives for security
 const CSP_DIRECTIVES = {
   'default-src': ["'self'"],
+  // SEM 'unsafe-inline'.
+  //
+  // Era o que separava um XSS de uma tomada de conta: o token vive em
+  // localStorage, portanto qualquer script arbitrario que corra aqui leva a
+  // sessao inteira. Saiu depois de:
+  //   - os ~470 handlers `onclick=` das paginas passarem a delegacao de
+  //     eventos (assets/js/actions.js);
+  //   - os blocos <script> inline deste shell irem para ficheiros
+  //     (shell-tema.js, shell-atualizacoes.js, shell-ui.js).
+  //
+  // Nao ha meio termo: basta UM atributo de evento ou UM bloco inline voltar
+  // para que tudo deixe de correr. Se algo parar de funcionar depois de
+  // mexer no HTML, a consola diz exatamente qual foi.
+  //
+  // 'unsafe-eval' e blob: ficam: as paginas sao carregadas com import() de
+  // URLs blob, que e como esta app sempre funcionou.
   'script-src': [
     "'self'",
-    "'unsafe-inline'", // Required for inline scripts in HTML
-    "'unsafe-eval'", // Required for dynamic imports
+    "'unsafe-eval'", // import() dinamico das paginas
     "https://cdn.jsdelivr.net",
-    "blob:" // Required for blob URLs (dynamic JS loading)
+    "blob:" // as paginas sao importadas como modulos a partir de blobs
   ],
+  // 'unsafe-inline' AINDA CA ESTA no style-src, e e uma divida por pagar.
+  //
+  // Faltam 136 atributos `style="..."` (128 no painel admin, 6 no do
+  // utilizador, 1 em cada shell) e 5 blocos <style>. So depois de todos
+  // saírem e que esta diretiva pode ir atras da do script-src.
+  //
+  // Pesa menos do que a do script-src: um XSS que so consiga injetar CSS nao
+  // rouba a sessao. Mas consegue esconder e falsificar o que esta no ecra —
+  // num painel onde se aprovam levantamentos, isso nao e inofensivo.
   'style-src': [
     "'self'",
-    "'unsafe-inline'", // Required for inline styles
+    "'unsafe-inline'", // 136 atributos style= + 5 blocos <style> por converter
     "https://fonts.googleapis.com",
     "https://cdnjs.cloudflare.com"
   ],
@@ -22,7 +46,12 @@ const CSP_DIRECTIVES = {
     "data:",
     "blob:",
     "https:",
-    "https://bcibizz.pt"
+    "https://bcibizz.pt",
+    // Admin Frontend API em producao. Faltava: o renderer nunca lhe tinha
+    // chamado diretamente (as paginas vem pelo processo principal, que nao
+    // passa por CSP), e a primeira vez que precisou — o health check da pagina
+    // Estado do Sistema — nao estava ca.
+    "https://admin.bcibizz.pt"
   ],
   'font-src': [
     "'self'",

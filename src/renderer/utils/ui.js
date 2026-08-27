@@ -21,11 +21,19 @@ export function showErrorPage(error, route) {
       <h2 style="color:#f1f1f4;margin:0 0 8px">Erro ao carregar página</h2>
       <p style="color:#6b6b7a;margin:0 0 20px;max-width:400px">${route ? `Não foi possível carregar "${route}".` : 'Ocorreu um erro inesperado.'}</p>
       <p style="color:#6b6b7a;font-size:0.8rem;margin:0 0 20px">${error?.message || ''}</p>
-      <button onclick="window.location.reload()" style="background:#6366f1;color:#fff;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:0.9rem">
+      <button id="btnRecarregarErro" style="background:#6366f1;color:#fff;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:0.9rem">
         <i class="fas fa-sync-alt"></i> Recarregar
       </button>
     </div>
   `;
+
+  // Ligado aqui, e não por delegação como o resto do painel: este ecrã aparece
+  // precisamente quando algo falhou a carregar, e o actions.js pode ser uma
+  // das coisas que falhou. Um botão de recuperação não pode depender do que
+  // está partido. (O atributo onclick saiu porque é ele que obriga o CSP a
+  // manter 'unsafe-inline'.)
+  const botao = mainContent.querySelector('#btnRecarregarErro');
+  if (botao) botao.addEventListener('click', () => window.location.reload());
 }
 
 export function showNotification(message, type = 'info') {
