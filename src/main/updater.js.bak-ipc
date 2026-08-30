@@ -21,13 +21,6 @@ autoUpdater.disableWebInstaller = false;
 // Armazenar dados da última atualização disponível
 let updateInfo = null;
 let downloadInProgress = false;
-// Caminho do instalador que ESTE processo descarregou.
-//
-// É a única origem aceite na hora de instalar. Antes, o caminho era enviado ao
-// renderer no evento 'update-downloaded' e o renderer devolvia-o em
-// 'install-and-update' — o processo principal executava o que lhe dessem.
-// Quem conseguisse correr código no renderer escolhia o executável.
-let caminhoInstaladorDescarregado = null;
 
 /**
  * Verifica updates via backend (seguro, com rate limit do servidor)
@@ -134,7 +127,6 @@ function setupUpdateHandlers() {
       }
 
       const installerPath = path.join(tempDir, winAsset.name);
-      caminhoInstaladorDescarregado = installerPath;
       
       if (DEBUG) {
         console.log('[UPDATER] Iniciando download:', winAsset.downloadUrl);
@@ -262,22 +254,13 @@ function setupUpdateHandlers() {
     }
   });
 
-  ipcMain.on('install-and-update', (event) => {
-    // O ARGUMENTO DO RENDERER É DELIBERADAMENTE IGNORADO.
-    //
-    // A assinatura antiga era (event, installerPath) e confiava nesse valor:
-    // copiava-o para appData e corria-o com /S (silencioso) através de um VBS.
-    // Ou seja, qualquer código a correr no renderer escolhia o executável — e
-    // as páginas do painel vêm da rede, não do disco.
-    //
-    // O caminho certo é o que o download desta sessão escreveu, e mais nenhum.
-    const installerPath = caminhoInstaladorDescarregado;
+  ipcMain.on('install-and-update', (event, installerPath) => {
     if (DEBUG) console.log('[UPDATER] Installing update and restarting app');
     if (DEBUG) console.log('[UPDATER] Installer:', installerPath);
     
     try {
       if (!installerPath || !fs.existsSync(installerPath)) {
-        if (DEBUG) console.error('[UPDATER] Sem instalador descarregado nesta sessão:', installerPath);
+        if (DEBUG) console.error('[UPDATER] Arquivo de instalação não encontrado:', installerPath);
         event.reply('update-error', { message: 'Arquivo de instalação não encontrado' });
         return;
       }
