@@ -2,9 +2,15 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld("electronAPI", {
-    joinPaths: (...args) => ipcRenderer.invoke("path:join", ...args),
-    fileExists: (path) => ipcRenderer.invoke("fs:fileExists", path),
-    readFile: (path) => ipcRenderer.invoke("fs:readFile", path),
+    // joinPaths/fileExists/readFile SAÍRAM.
+    //
+    // Anunciavam os canais "path:join", "fs:fileExists" e "fs:readFile", para
+    // os quais não existe — nem deve existir — nenhum ipcMain.handle: leitura
+    // arbitrária de ficheiros a partir do renderer foi fechada de propósito.
+    // O que ficava era uma promessa rejeitada e, pior, um mapa do que já houve
+    // aqui, apontando a quem sonde exatamente que canais valeria a pena tentar
+    // reabrir. Se algum dia for preciso ler um ficheiro local, faz-se como o
+    // assets:getLocal: caminho validado no processo principal.
     logout: () => ipcRenderer.invoke("logout"),
     listAssetsCss: () => ipcRenderer.invoke('assets:listCss'),
     listAssetsJs: () => ipcRenderer.invoke('assets:listJs'),

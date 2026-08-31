@@ -26,7 +26,8 @@
     "dev": "electronmon .",
     "build": "electron-builder",
     "build:prod": "electron-builder --publish never",
-    "build:release": "electron-builder --publish always"
+    "build:release": "electron-builder --publish always",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "dotenv": "^16.5.0",
