@@ -47,6 +47,21 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.removeAllListeners('odds:progress');
     },
 
+    // Navegação vinda do processo principal (menu do tray).
+    //
+    // O tray já enviava 'navigate-to' desde sempre, mas não havia ponte nenhuma
+    // para o renderer — e com contextIsolation:true a página não tem acesso ao
+    // ipcRenderer por fora. As entradas "Dashboard"/"Utilizadores"/"Transações"
+    // do menu traziam a janela para a frente e não mudavam de página.
+    onNavigateTo: (cb) => {
+      ipcRenderer.on('navigate-to', (e, route) => cb && cb(route));
+    },
+
+    // Confirmação de que a cache foi limpa (Ctrl+Shift+C).
+    onCacheCleared: (cb) => {
+      ipcRenderer.on('cache-cleared', () => cb && cb());
+    },
+
     // Updater event listeners
     onUpdateAvailable: (cb) => {
       ipcRenderer.on('update-available', (e, data) => cb && cb(data));

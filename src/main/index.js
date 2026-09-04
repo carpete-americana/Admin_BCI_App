@@ -28,7 +28,6 @@ ipcMain.handle('assets:getLocal', (e, path) => assets.getAssetDataUrl(path));
 // IPC Handlers - Routes and Config (routes loaded from Frontend API via sidebar.js)
 ipcMain.handle('app:getDebugMode', () => DEBUG);
 ipcMain.handle('app:getVersion', () => require('../../package.json').version);
-ipcMain.handle('security:validateUrl', (e, url) => security.isUrlSafe(url));
 
 // IPC Handlers - Metrics
 ipcMain.handle('metrics:trackPageLoad', (e, pageName, startTime) => metrics.trackPageLoad(pageName, startTime));

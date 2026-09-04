@@ -219,6 +219,22 @@ window.navigateTo = async (route) => {
 
 /* Init */
 document.addEventListener('DOMContentLoaded', async () => {
+  // Navegação pedida pelo menu do tray. Registado ANTES do resto do init: o
+  // clique no tray pode chegar a qualquer momento, e é aqui que o canal
+  // 'navigate-to' — que o processo principal já emitia sem ninguém do outro
+  // lado — passa finalmente a mudar de página.
+  if (window.electronAPI && typeof window.electronAPI.onNavigateTo === 'function') {
+    window.electronAPI.onNavigateTo((route) => {
+      if (route) window.navigateTo(route);
+    });
+  }
+
+  if (window.electronAPI && typeof window.electronAPI.onCacheCleared === 'function') {
+    window.electronAPI.onCacheCleared(() => {
+      DEBUG && console.log('[CACHE] limpa pelo atalho');
+    });
+  }
+
   try {
     // Check version and clear cache if major update
     const currentVersion = await window.electronAPI.getVersion();

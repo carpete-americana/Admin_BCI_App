@@ -34,10 +34,6 @@ function cacheClear() {
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const humanDelay = (min, max) => sleep(min + Math.random() * (max - min));
 
-function humanMove(page, x, y) {
-  return page.mouse.move(x, y, { steps: 3 + Math.floor(Math.random() * 5) });
-}
-
 // ────── Chrome path detection ──────
 function findChromePath() {
   const platform = os.platform();
