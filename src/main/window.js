@@ -228,9 +228,8 @@ function handleNavigate(event, filePath) {
 // Logout handler
 function handleLogout(event) {
   DEBUG && console.log('[LOGOUT] Clearing session and returning to login');
-  // Clear token and rememberMe from storage
+  // Clear token from storage
   ElectronStorage.removeItem('admin-token');
-  ElectronStorage.removeItem('admin-rememberMe');
   // Navigate to login page
   const win = BrowserWindow.getFocusedWindow();
   if (win) {

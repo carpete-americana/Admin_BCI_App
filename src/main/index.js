@@ -115,11 +115,60 @@ if (!gotTheLock) {
         mainWindow.focus();
       }
     }
+
+    // UMA LIGAÇÃO `bciadmin://` CHEGA POR AQUI.
+    //
+    // No Windows não há evento próprio: o sistema lança o executável outra vez
+    // com o endereço na linha de comandos, e o bloqueio de instância única
+    // transforma isso neste evento. Se a aplicação estivesse fechada, o
+    // endereço vem no `process.argv` do arranque — tratado mais abaixo.
+    tratarLigacao(commandLine);
   });
+
+// ---- Abrir sessão no painel a partir daqui (ver autorizacao-painel.js) ----
+const autorizacaoPainel = require('./autorizacao-painel');
+
+/** Lê o token desta aplicação. O armazenamento já devolve a string desembrulhada. */
+async function lerTokenDeAdmin() {
+  try {
+    const valor = await ElectronStorage.getItem('admin-token');
+    return typeof valor === 'string' && valor ? valor : null;
+  } catch (erro) {
+    DEBUG && console.log('[AUTORIZACAO] falha a ler o token:', erro.message);
+    return null;
+  }
+}
+
+/**
+ * Procura um pedido de autorização numa linha de comandos e trata-o.
+ *
+ * Silencioso quando não há nada: a esmagadora maioria dos arranques e das
+ * segundas instâncias não tem ligação nenhuma, e isto corre em ambos.
+ */
+function tratarLigacao(argv) {
+  const pedido = autorizacaoPainel.procurarNosArgumentos(argv);
+  if (!pedido) return;
+
+  DEBUG && console.log('[AUTORIZACAO] pedido recebido');
+  autorizacaoPainel.tratarPedido(pedido, {
+    janelaPrincipal: mainWindow,
+    lerToken: lerTokenDeAdmin
+  }).catch(erro => {
+    DEBUG && console.log('[AUTORIZACAO] falhou:', erro.message);
+  });
+}
 
 // App lifecycle
 app.whenReady().then(() => {
   DEBUG && console.log('[APP] Admin Application ready, initializing...');
+
+  // O esquema regista-se sempre, e não só na instalação: repara um registo que
+  // outra aplicação tenha roubado, e serve quem corre isto a partir do código.
+  autorizacaoPainel.registarEsquema();
+
+  // A aplicação estava fechada e foi aberta PELA ligação: aí ela vem no argv
+  // deste arranque, e não há segunda instância nenhuma para a apanhar.
+  tratarLigacao(process.argv);
   
   // Setup metrics
   metrics.setupMetrics();

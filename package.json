@@ -114,6 +114,14 @@
       "icon": "build/bci-rounded2.png",
       "category": "Finance",
       "maintainer": "carpete_americana"
-    }
+    },
+    "protocols": [
+      {
+        "name": "BCI Admin",
+        "schemes": [
+          "bciadmin"
+        ]
+      }
+    ]
   }
 }
