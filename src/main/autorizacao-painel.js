@@ -21,11 +21,12 @@
  *
  * AS TRÊS REGRAS QUE SEGURAM ISTO
  *
- * - **O destino é nosso, nunca da ligação.** `PAINEL_URL` está fixo aqui. Um
- *   site qualquer consegue disparar `bciadmin://` — é assim para todos os
- *   esquemas próprios — mas o código que daí sair vai sempre parar ao painel
- *   verdadeiro, nunca a um endereço que o atacante escolha. Sem isto, o fluxo
- *   inteiro seria uma forma de entregar a sessão a quem pedisse.
+ * - **O destino é nosso, nunca da ligação.** Ver `painelUrl()` abaixo: na
+ *   aplicação instalada é sempre produção, sem excepção. Um site qualquer
+ *   consegue disparar `bciadmin://` — é assim para todos os esquemas próprios
+ *   — mas o código que daí sair vai sempre parar ao painel verdadeiro, nunca a
+ *   um endereço que o atacante escolha. Sem isto, o fluxo inteiro seria uma
+ *   forma de entregar a sessão a quem pedisse.
  *
  * - **Ninguém autoriza por ti.** O passo 3 é uma janela nativa, modal, que diz
  *   o que se está a autorizar. O pior que um site consegue é fazê-la aparecer.
@@ -40,14 +41,52 @@ const { API_CONFIG, DEBUG } = require('./config');
 /** O esquema que o instalador regista. Ver `build.protocols` no package.json. */
 const ESQUEMA = 'bciadmin';
 
-/**
- * PARA ONDE O CÓDIGO VAI. Fixo, e a leitura mais importante deste ficheiro.
- * Nunca vem da ligação, nem de configuração, nem do que a API responder.
- */
-const PAINEL_URL = 'https://admin.bcibizz.pt';
+/** PARA ONDE O CÓDIGO VAI, na aplicação instalada. */
+const PAINEL_PRODUCAO = 'https://admin.bcibizz.pt';
 
-/** A API vive no mesmo domínio do painel, atrás do proxy. */
-const API_URL = `${PAINEL_URL}/api`;
+/**
+ * O destino do código.
+ *
+ * NUNCA VEM DA LIGAÇÃO, e é essa a defesa que sustenta o fluxo todo: um site
+ * qualquer consegue disparar `bciadmin://`, mas o código que daí sair vai
+ * sempre parar ao painel que ESTA APLICAÇÃO escolher.
+ *
+ * EMPACOTADA, É SEMPRE PRODUÇÃO. Sem variável de ambiente, sem definição, sem
+ * excepção — quem tiver a aplicação instalada não tem por onde a apontar a
+ * outro sítio, e nem sequer alguém com acesso ao ambiente da máquina.
+ *
+ * A correr a partir do código, aceita-se `BCI_PAINEL_URL`. Sem isso, testar
+ * esta funcionalidade em desenvolvimento é impossível: a aplicação falava com
+ * produção, onde a rota só existe depois de publicada, e respondia 404.
+ */
+function painelUrl() {
+  if (app.isPackaged) return PAINEL_PRODUCAO;
+
+  const alternativo = String(process.env.BCI_PAINEL_URL || '').trim().replace(/\/+$/, '');
+  return alternativo || PAINEL_PRODUCAO;
+}
+
+/**
+ * A API NÃO VIVE NO DOMÍNIO DO PAINEL, e assumir que sim custou um 404.
+ *
+ * O painel está em `admin.bcibizz.pt` e a API em `bcibizz.pt/api` — uma só
+ * API a servir os dois sites. É a mesma regra que `Admin Website/js/api-config.js`
+ * já seguia; este ficheiro é que a estava a inventar.
+ *
+ * São dois endereços com papéis diferentes, e não se derivam um do outro:
+ * `painelUrl()` é PARA ONDE O CÓDIGO VAI (e é a defesa do fluxo), este é A QUEM
+ * SE PEDE o código.
+ */
+const API_PRODUCAO = 'https://bcibizz.pt/api';
+
+function apiUrl() {
+  if (app.isPackaged) return API_PRODUCAO;
+
+  // Em desenvolvimento a API responde na própria origem do site, atrás do
+  // proxy — tal como no browser.
+  const alternativo = String(process.env.BCI_PAINEL_URL || '').trim().replace(/\/+$/, '');
+  return alternativo ? `${alternativo}/api` : API_PRODUCAO;
+}
 
 /** Um resumo tem 64 hexadecimais. Tudo o resto é lixo e não segue. */
 function ehResumo(valor) {
@@ -130,7 +169,7 @@ async function pedirAutorizacao(janelaPrincipal) {
       'Um pedido de entrada no painel de administração chegou do teu navegador.\n\n' +
       'Se foste tu que carregaste em "Entrar com a aplicação", autoriza. ' +
       'Se não estavas à espera disto, recusa.\n\n' +
-      'A sessão é aberta em ' + PAINEL_URL
+      'A sessão é aberta em ' + painelUrl()
   });
 
   return response === 1;
@@ -143,7 +182,7 @@ async function pedirAutorizacao(janelaPrincipal) {
  * encriptado). Se não houver sessão aqui, não há nada a autorizar.
  */
 async function pedirCodigo(token, challenge) {
-  const resposta = await fetch(`${API_URL}/auth/app-authorization`, {
+  const resposta = await fetch(`${apiUrl()}/auth/app-authorization`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -202,7 +241,7 @@ async function tratarPedido(pedido, { janelaPrincipal, lerToken } = {}) {
 
   // O destino é o nosso, com o código no FRAGMENTO e não na query: um
   // fragmento não é enviado ao servidor nem entra nos registos dele.
-  const destino = `${PAINEL_URL}/#autorizar=${encodeURIComponent(r.codigo)}`;
+  const destino = `${painelUrl()}/#autorizar=${encodeURIComponent(r.codigo)}`;
   await shell.openExternal(destino);
 
   return { ok: true };
@@ -210,8 +249,10 @@ async function tratarPedido(pedido, { janelaPrincipal, lerToken } = {}) {
 
 module.exports = {
   ESQUEMA,
-  PAINEL_URL,
-  API_URL,
+  PAINEL_PRODUCAO,
+  API_PRODUCAO,
+  painelUrl,
+  apiUrl,
   ehResumo,
   lerPedido,
   procurarNosArgumentos,
