@@ -1,0 +1,166 @@
+/* As cores são as do painel de admin (Admin Frontend API/assets/css/styles.css).
+   Copiadas e não importadas: esta página vem do disco e não fala com a rede. */
+:root {
+  color-scheme: dark;
+  --primary: #6366f1;
+  --primary-dark: #4f46e5;
+  --text-primary: #f1f1f4;
+  --text-secondary: #9898a6;
+  --text-muted: #6b6b7a;
+  --bg-dark: #0f0f14;
+  --bg-card: #1a1a24;
+  --bg-input: #252532;
+  --bg-hover: #2d2d3d;
+  --border-color: #2d2d3d;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --error-bg: rgba(239, 68, 68, 0.12);
+}
+
+* { box-sizing: border-box; }
+
+/* O atributo hidden perde para qualquer display escrito aqui: o "Abre em"
+   (inline-flex) aparecia vazio na janela de erro, com hidden posto. */
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font: 14px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  overflow: hidden;
+}
+
+.cartao {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-color);
+}
+
+/* A janela não tem moldura do sistema: é esta barra que a deixa arrastar. */
+.barra {
+  -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-dark);
+}
+
+.marca {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.ponto {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+/* O corpo encolhe e ganha scroll; os botões nunca. Sem min-height: 0, um filho
+   de flex não encolhe abaixo do seu conteúdo e empurra o rodapé para fora da
+   janela — era isso que colava os botões ao fundo. */
+.corpo {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 26px 8px;
+}
+
+.botoes { flex-shrink: 0; }
+
+.icone {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 14px;
+  color: var(--primary);
+  background: rgba(99, 102, 241, 0.14);
+}
+
+.cartao[data-tipo="erro"] .icone { color: var(--error); background: var(--error-bg); }
+
+h1 {
+  margin: 0 0 6px;
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.texto {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.destino {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  font-size: 12.5px;
+}
+
+.destino-rotulo { color: var(--text-muted); }
+.destino-valor { font-weight: 600; }
+
+.aviso {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.botoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 26px 20px;
+}
+
+.btn {
+  min-width: 110px;
+  padding: 9px 16px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, opacity 150ms ease;
+}
+
+.btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.btn-recusar {
+  background: var(--bg-input);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+.btn-recusar:hover { background: var(--bg-hover); }
+
+.btn-autorizar {
+  background: var(--primary);
+  color: #fff;
+}
+.btn-autorizar:hover:not(:disabled) { background: var(--primary-dark); }
+
+/* Desativado durante um instante depois de a janela ganhar foco — ver
+   confirmar.js. Visível, para não parecer avariado. */
+.btn-autorizar:disabled { opacity: 0.45; cursor: default; }
+
+.cartao:not([data-tipo="confirmar"]) .btn-autorizar { display: none; }

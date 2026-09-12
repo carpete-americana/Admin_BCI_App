@@ -14,7 +14,7 @@
  *   1. A página de login do painel gera um segredo, guarda-o, e abre
  *      `bciadmin://autorizar?challenge=<resumo do segredo>`.
  *   2. O Windows lança (ou acorda) esta aplicação com esse endereço.
- *   3. Nós perguntamos à pessoa se autoriza, numa janela nativa.
+ *   3. Nós perguntamos à pessoa se autoriza, numa janela desta aplicação.
  *   4. Autorizada, trocamos a nossa sessão por um código de uso único na API.
  *   5. Abrimos o painel nesse código.
  *   6. A página troca o código por uma sessão, provando ser dona do segredo.
@@ -28,14 +28,17 @@
  *   um endereço que o atacante escolha. Sem isto, o fluxo inteiro seria uma
  *   forma de entregar a sessão a quem pedisse.
  *
- * - **Ninguém autoriza por ti.** O passo 3 é uma janela nativa, modal, que diz
- *   o que se está a autorizar. O pior que um site consegue é fazê-la aparecer.
+ * - **Ninguém autoriza por ti.** O passo 3 é uma janela da aplicação, com a
+ *   página instalada no disco e sessão própria, que diz o que se está a
+ *   autorizar. O pior que um site consegue é fazê-la aparecer. As garantias
+ *   estão em janela-autorizacao.js.
  *
  * - **Só o desafio viaja.** O que vem na ligação é o RESUMO de um segredo, e
  *   mais nada. Não aceitamos endereços, nem nomes de servidor, nem tokens.
  */
 
-const { app, dialog, shell } = require('electron');
+const { app, shell } = require('electron');
+const janelaAutorizacao = require('./janela-autorizacao');
 const { API_CONFIG, DEBUG } = require('./config');
 
 /** O esquema que o instalador regista. Ver `build.protocols` no package.json. */
@@ -149,30 +152,26 @@ function registarEsquema() {
   }
 }
 
+/** Só o anfitrião do painel, para a janela: o endereço inteiro é ruído. */
+function anfitriaoDoPainel() {
+  try { return new URL(painelUrl()).host; }
+  catch (e) { return painelUrl(); }
+}
+
 /**
- * A janela que pergunta. Nativa e modal de propósito: uma página web dentro da
- * aplicação seria mais bonita e mais fácil de imitar.
- *
- * O botão por omissão é o de recusar, e o de cancelar também — quem carrega em
- * Enter sem ler está a dizer que não.
+ * A janela que pergunta. É da aplicação e não do Windows — e as garantias que
+ * a caixa nativa dava de graça estão todas refeitas em janela-autorizacao.js:
+ * página do disco, sessão isolada, só aquela janela responde, "Recusar" por
+ * omissão, e o "Autorizar" não aceita um clique cedo demais.
  */
 async function pedirAutorizacao(janelaPrincipal) {
-  const { response } = await dialog.showMessageBox(janelaPrincipal || null, {
-    type: 'question',
-    buttons: ['Não autorizar', 'Autorizar'],
-    defaultId: 0,
-    cancelId: 0,
-    noLink: true,
-    title: 'Autorizar o navegador',
-    message: 'Abrir sessão no painel, no teu navegador?',
-    detail:
-      'Um pedido de entrada no painel de administração chegou do teu navegador.\n\n' +
-      'Se foste tu que carregaste em "Entrar com a aplicação", autoriza. ' +
-      'Se não estavas à espera disto, recusa.\n\n' +
-      'A sessão é aberta em ' + painelUrl()
-  });
-
-  return response === 1;
+  return janelaAutorizacao.mostrar({
+    tipo: 'confirmar',
+    titulo: 'Abrir sessão no navegador?',
+    texto: 'O painel pediu para entrar com a conta que tens aberta nesta aplicação.',
+    destino: anfitriaoDoPainel(),
+    aviso: 'Se não foste tu que pediste, recusa.'
+  }, { janelaPrincipal });
 }
 
 /**
@@ -214,12 +213,11 @@ async function tratarPedido(pedido, { janelaPrincipal, lerToken } = {}) {
 
   const token = await lerToken();
   if (!token) {
-    await dialog.showMessageBox(janelaPrincipal || null, {
-      type: 'info',
-      title: 'Sem sessão',
-      message: 'Entra primeiro nesta aplicação.',
-      detail: 'Para abrires sessão no navegador, precisas de ter sessão aqui.'
-    });
+    await janelaAutorizacao.mostrar({
+      tipo: 'info',
+      titulo: 'Entra primeiro na aplicação',
+      texto: 'Para abrires o painel no navegador, precisas de ter sessão iniciada aqui.'
+    }, { janelaPrincipal });
     return { ok: false, motivo: 'SEM_SESSAO' };
   }
 
@@ -230,12 +228,11 @@ async function tratarPedido(pedido, { janelaPrincipal, lerToken } = {}) {
 
   const r = await pedirCodigo(token, pedido.challenge);
   if (!r.ok) {
-    await dialog.showMessageBox(janelaPrincipal || null, {
-      type: 'error',
-      title: 'Não foi possível autorizar',
-      message: 'Não foi possível abrir a sessão no navegador.',
-      detail: r.mensagem
-    });
+    await janelaAutorizacao.mostrar({
+      tipo: 'erro',
+      titulo: 'Não foi possível autorizar',
+      texto: r.mensagem
+    }, { janelaPrincipal });
     return { ok: false, motivo: 'API_FALHOU' };
   }
 

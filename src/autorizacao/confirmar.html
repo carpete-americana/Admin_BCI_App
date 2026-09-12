@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8">
+  <!--
+    Esta página é da APLICAÇÃO e vem do disco, nunca da rede.
+
+    É isso que a torna de confiança para pedir uma autorização: a janela
+    principal carrega páginas da Frontend API, e um botão "Autorizar" desenhado
+    lá podia ser carregado por qualquer script que lá corresse. Aqui não corre
+    nada que não tenha sido instalado com a aplicação.
+
+    CSP fechada: nada de fora, nada inline.
+  -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+  <title>Autorizar o navegador</title>
+  <link rel="stylesheet" href="confirmar.css">
+</head>
+<body>
+  <div class="cartao" id="cartao" data-tipo="confirmar">
+    <header class="barra">
+      <span class="marca"><span class="ponto"></span> BCI Admin</span>
+    </header>
+
+    <main class="corpo">
+      <div class="icone" id="icone" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="26" height="26"><path d="M3 5.5A2.5 2.5 0 0 1 5.5 3h13A2.5 2.5 0 0 1 21 5.5v9a2.5 2.5 0 0 1-2.5 2.5H14l.75 2.25H17a.75.75 0 0 1 0 1.5H7a.75.75 0 0 1 0-1.5h2.25L10 17H5.5A2.5 2.5 0 0 1 3 14.5v-9Z" fill="currentColor"/></svg>
+      </div>
+
+      <h1 id="titulo"></h1>
+      <p class="texto" id="texto"></p>
+
+      <div class="destino" id="destino" hidden>
+        <span class="destino-rotulo">Abre em</span>
+        <span class="destino-valor" id="destinoValor"></span>
+      </div>
+
+      <p class="aviso" id="aviso" hidden></p>
+    </main>
+
+    <footer class="botoes">
+      <button type="button" class="btn btn-recusar" id="btnRecusar">Recusar</button>
+      <button type="button" class="btn btn-autorizar" id="btnAutorizar" disabled>Autorizar</button>
+    </footer>
+  </div>
+
+  <script src="confirmar.js"></script>
+</body>
+</html>
