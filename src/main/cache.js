@@ -1,4 +1,4 @@
-// Admin Frontend API cache module with hash-based validation
+// Cache das páginas da Admin Frontend API, validada por hash.
 const ElectronStorage = require('../../js/storage');
 const { API_CONFIG, DEBUG } = require('./config');
 const crypto = require('crypto');
@@ -7,28 +7,22 @@ const STORAGE_PREFIX = API_CONFIG.STORAGE_PREFIX;
 const HASHES_CACHE_KEY = 'admin-api-hashes-cache';
 const HASHES_TTL = 5 * 60 * 1000; // Cache hashes por 5 minutos
 
-// Exponential backoff configuration
 const RETRY_CONFIG = {
   maxRetries: 3,
   baseDelay: 1000, // 1s
   maxDelay: 10000  // 10s
 };
 
-// Offline request queue
 let offlineQueue = [];
 let isOnline = true;
 let apiHashes = null;
 let hashesLastFetched = 0;
 
-/**
- * Busca hashes dos ficheiros da API
- */
 async function fetchHashesFromAPI() {
   try {
     const now = Date.now();
     const cachedHashes = ElectronStorage.getItem(HASHES_CACHE_KEY);
     
-    // Se tem cache de hashes e é recente, usa
     if (cachedHashes && cachedHashes.fetchedAt && (now - cachedHashes.fetchedAt < HASHES_TTL)) {
       DEBUG && console.log('[HASHES] Usando cache de hashes');
       return cachedHashes.data;
@@ -56,27 +50,22 @@ async function fetchHashesFromAPI() {
     return null;
   } catch (e) {
     DEBUG && console.error('[HASHES] Erro ao buscar hashes:', e.message);
-    // Retorna hashes em cache mesmo se antigos
+    // Devolve os hashes em cache mesmo desatualizados.
     const cachedHashes = ElectronStorage.getItem(HASHES_CACHE_KEY);
     return cachedHashes?.data || null;
   }
 }
 
-/**
- * Calcula hash SHA-256 de um conteúdo (primeiros 16 chars)
- */
+/** SHA-256 do conteúdo, truncado a 16 caracteres. */
 function calculateHash(content) {
   if (!content) return null;
   const hash = crypto.createHash('sha256').update(content).digest('hex');
-  return hash.substring(0, 16); // Primeiros 16 caracteres para maior segurança
+  return hash.substring(0, 16);
 }
 
-/**
- * Valida se o ficheiro mudou comparando hashes
- */
 function validateFileHash(filePath, content) {
   if (!apiHashes || !apiHashes.assets) {
-    return true; // Se não tem hashes, assume que é válido
+    return true; // Sem hashes, o ficheiro é considerado válido.
   }
   
   const expectedHash = apiHashes.assets[filePath];
@@ -97,31 +86,25 @@ function validateFileHash(filePath, content) {
   return isValid;
 }
 
-/**
- * Fetch a file from the Admin Frontend API with hash-based validation
- */
 async function apiFetchWithCache(pathRel, basePath, ttl) {
   const key = STORAGE_PREFIX + pathRel;
   const cached = ElectronStorage.getItem(key);
   const now = Date.now();
   
   const filePath = `${basePath}${pathRel}`;
-  // Adicionar versioning ao URL para invalidar cache em crítico
   const versionParam = `?v=${API_CONFIG.CACHE_BUSTER}`;
   const url = `${API_CONFIG.BASE_URL}${API_CONFIG.FILES_ENDPOINT}/${filePath}${versionParam}`;
 
-  // Validate URL before fetching
   const security = require('./security');
   if (!security.isUrlSafe(url)) {
     throw new Error(`Unsafe URL blocked: ${url}`);
   }
 
-  // Buscar hashes se não tem
   if (!apiHashes) {
     apiHashes = await fetchHashesFromAPI();
   }
 
-  // Validar cache usando APENAS hashes (não TTL!)
+  // A cache é validada só pelos hashes, não por TTL.
   if (cached && cached.content && apiHashes) {
     const filePathForHash = filePath.startsWith('/') ? filePath.substring(1) : filePath;
     if (validateFileHash(filePathForHash, cached.content)) {
@@ -140,21 +123,18 @@ async function apiFetchWithCache(pathRel, basePath, ttl) {
     try {
       const headers = {};
       
-      // Add ETag if we have one cached
       if (cached && cached.etag) {
         headers['If-None-Match'] = cached.etag;
       }
       
       const resp = await fetch(url, { headers });
       
-      // Handle 304 Not Modified
       if (resp.status === 304 && cached) {
         cached.fetchedAt = now;
         ElectronStorage.setItem(key, cached);
         DEBUG && console.log(`[STORAGE] ✓ Guardado (304): ${key}`);
         DEBUG && console.log(`[API CACHE HIT] ${pathRel} (304 Not Modified)`);
         
-        // Track cache hit
         try {
           const metrics = require('./metrics');
           metrics.trackCacheHit(true);
@@ -170,13 +150,12 @@ async function apiFetchWithCache(pathRel, basePath, ttl) {
           content: text, 
           etag, 
           fetchedAt: now,
-          hash: calculateHash(text) // Guarda hash para validação
+          hash: calculateHash(text)
         };
         ElectronStorage.setItem(key, payload);
         DEBUG && console.log(`[STORAGE] ✓ Guardado: ${key} (hash: ${payload.hash})`);
         DEBUG && console.log(`[API SUCCESS] ${pathRel} (${text.length} bytes, hash: ${payload.hash})`);
         
-        // Track cache miss
         try {
           const metrics = require('./metrics');
           metrics.trackCacheHit(false);
@@ -185,7 +164,6 @@ async function apiFetchWithCache(pathRel, basePath, ttl) {
         return payload;
       }
       
-      // Handle errors
       if (resp.status === 404) {
         throw new Error(`File not found: ${pathRel}`);
       }
@@ -197,7 +175,6 @@ async function apiFetchWithCache(pathRel, basePath, ttl) {
       throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
       
     } catch (err) {
-      // Exponential backoff retry with jitter
       if (retryCount < RETRY_CONFIG.maxRetries) {
         const delay = Math.min(
           RETRY_CONFIG.baseDelay * Math.pow(2, retryCount) + Math.random() * 1000,
@@ -210,13 +187,11 @@ async function apiFetchWithCache(pathRel, basePath, ttl) {
       
       DEBUG && console.error(`[API ERROR] ${pathRel}:`, err);
       
-      // Return cached version if available (even if expired)
       if (cached && cached.content) {
         console.warn(`[API FALLBACK] Using stale cache for ${pathRel}`);
         return cached;
       }
       
-      // If all retries failed and offline, queue the request
       if (!isOnline) {
         DEBUG && console.log(`[OFFLINE QUEUE] Adding ${pathRel} to queue`);
         offlineQueue.push({ pathRel, basePath, ttl });
@@ -228,34 +203,27 @@ async function apiFetchWithCache(pathRel, basePath, ttl) {
   return doFetch();
 }
 
-// IPC handler to fetch page content with cache
 function handleFetch(event, pathRel, ttl) {
   const effectiveTTL = ttl || API_CONFIG.PAGE_TTL;
   return apiFetchWithCache(pathRel, 'pages/', effectiveTTL);
 }
 
-// IPC handler to fetch assets (path already includes 'assets/' prefix)
 function handleFetchAsset(event, pathRel, ttl) {
   const effectiveTTL = ttl || API_CONFIG.ASSET_TTL;
-  // Don't add prefix - pathRel already contains full path like 'assets/js/utils.js'
+  // pathRel já inclui o prefixo assets/.
   return apiFetchWithCache(pathRel, '', effectiveTTL);
 }
 
-// IPC handler to clear cache for a specific file
 function handleClear(event, pathRel) {
   ElectronStorage.removeItem(STORAGE_PREFIX + pathRel);
 }
 
-// IPC handler to clear all cache
 function handleClearAll() {
   Object.keys(ElectronStorage.data)
     .filter(k => k.startsWith(STORAGE_PREFIX))
     .forEach(k => ElectronStorage.removeItem(k));
 }
 
-/**
- * List CSS files under assets/css from the Admin Frontend API.
- */
 async function listCssFiles() {
   try {
     DEBUG && console.log('[assets:listCss] fetching from Admin Frontend API...');
@@ -265,7 +233,6 @@ async function listCssFiles() {
     if (resp && resp.ok) {
       const data = await resp.json();
       if (data && data.success && Array.isArray(data.files)) {
-        // Filter CSS files from assets/css/
         const cssFiles = data.files
           .filter(f => f.startsWith('assets/css/') && f.endsWith('.css'))
           .map(f => f.replace('assets/css/', ''));
@@ -281,9 +248,6 @@ async function listCssFiles() {
   }
 }
 
-/**
- * List JS files under assets/js from the Admin Frontend API.
- */
 async function listJsFiles() {
   try {
     DEBUG && console.log('[assets:listJs] fetching from Admin Frontend API...');
@@ -293,7 +257,6 @@ async function listJsFiles() {
     if (resp && resp.ok) {
       const data = await resp.json();
       if (data && data.success && Array.isArray(data.files)) {
-        // Filter JS files from assets/js/
         const jsFiles = data.files
           .filter(f => f.startsWith('assets/js/') && f.endsWith('.js'))
           .map(f => f.replace('assets/js/', ''));
@@ -309,7 +272,6 @@ async function listJsFiles() {
   }
 }
 
-// Clean old cache entries (remove entries older than MAX_CACHE_AGE)
 function cleanOldCache() {
   const now = Date.now();
   const keys = Object.keys(ElectronStorage.data).filter(k => k.startsWith(API_CONFIG.STORAGE_PREFIX));
@@ -324,20 +286,17 @@ function cleanOldCache() {
   DEBUG && cleaned > 0 && console.log(`[CACHE CLEANUP] Removed ${cleaned} old entries`);
 }
 
-// Set online/offline status
 function setOnlineStatus(online) {
   const wasOffline = !isOnline;
   isOnline = online;
   
   DEBUG && console.log(`[NETWORK] Status changed: ${online ? 'ONLINE' : 'OFFLINE'}`);
   
-  // Process offline queue when coming back online
   if (online && wasOffline && offlineQueue.length > 0) {
     processOfflineQueue();
   }
 }
 
-// Process offline queue
 async function processOfflineQueue() {
   if (offlineQueue.length === 0) return;
   
@@ -358,7 +317,6 @@ async function processOfflineQueue() {
   DEBUG && console.log('[OFFLINE QUEUE] Sync complete');
 }
 
-// Preload frequently accessed admin pages
 async function preloadFrequentPages() {
   const frequentPages = ['dashboard', 'users', 'transactions'];
   
@@ -375,25 +333,20 @@ async function preloadFrequentPages() {
   }
 }
 
-// Referências para cleanup dos intervals
 let backgroundSyncInterval = null;
 let hashRefreshInterval = null;
 
-// Background cache refresh (updates cache without blocking)
 function startBackgroundSync() {
-  // Clear existing interval if any
   if (backgroundSyncInterval) {
     clearInterval(backgroundSyncInterval);
   }
   
-  // Refresh cache every 30 minutes
   backgroundSyncInterval = setInterval(async () => {
     if (!isOnline) return;
     
     DEBUG && console.log('[BACKGROUND SYNC] Starting cache refresh...');
     
     try {
-      // Refresh CSS/JS assets
       const cssFiles = await listCssFiles();
       const jsFiles = await listJsFiles();
       
@@ -409,30 +362,22 @@ function startBackgroundSync() {
     } catch (err) {
       DEBUG && console.log('[BACKGROUND SYNC] Error:', err.message);
     }
-  }, 30 * 60 * 1000); // 30 minutes
+  }, 30 * 60 * 1000); // 30 minutos
   
   DEBUG && console.log('[BACKGROUND SYNC] Background sync started (30min interval)');
 }
 
-/**
- * Inicia refresh periódico de hashes
- */
 function startHashRefresh() {
-  // Clear existing interval if any
   if (hashRefreshInterval) {
     clearInterval(hashRefreshInterval);
   }
   
-  // Busca hashes a cada 5 minutos
   hashRefreshInterval = setInterval(async () => {
     DEBUG && console.log('[HASHES] Iniciando refresh periódico...');
     apiHashes = await fetchHashesFromAPI();
   }, 5 * 60 * 1000);
 }
 
-/**
- * Para todos os intervals para cleanup graceful
- */
 function stopAllIntervals() {
   if (backgroundSyncInterval) {
     clearInterval(backgroundSyncInterval);

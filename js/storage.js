@@ -15,13 +15,11 @@ class ElectronStorage {
     this.keyPath = path.join(this.userDataPath, 'admin-encryption.key')
     this.data = this.loadData()
     
-    // Carrega ou gera chave de encriptação
     const encryptionKey = this.getOrCreateEncryptionKey()
     
-    this.algorithm = 'aes-256-gcm' // GCM é mais seguro que CBC
+    this.algorithm = 'aes-256-gcm'
     this.key = crypto.scryptSync(encryptionKey, encryptionKey.slice(0, 16), 32)
     
-    // Migrar dados antigos se necessário
     this.migrateOldData()
   }
   
@@ -30,11 +28,10 @@ class ElectronStorage {
    */
   migrateOldData() {
     if (this.data._encryptionVersion === ENCRYPTION_VERSION) {
-      return; // Já está no formato novo
+      return;
     }
     
     try {
-      // Tenta desencriptar com formato antigo e re-encriptar
       const oldData = { ...this.data };
       delete oldData._encryptionVersion;
       
@@ -43,7 +40,6 @@ class ElectronStorage {
       
       for (const [key, value] of Object.entries(oldData)) {
         if (typeof value === 'string' && !value.includes(':')) {
-          // Formato antigo (sem IV prefixado)
           try {
             const decrypted = this.decryptLegacy(value);
             if (decrypted) {
@@ -51,7 +47,7 @@ class ElectronStorage {
               needsMigration = true;
             }
           } catch (e) {
-            // Não é formato antigo ou está corrompido, mantém
+            // Não é do formato antigo ou está corrompido: fica como está.
             newData[key] = value;
           }
         } else {
@@ -145,7 +141,7 @@ class ElectronStorage {
   }
 
   encrypt(text) {
-    // Gera IV aleatório para cada encriptação (12 bytes para GCM)
+    // IV aleatório por encriptação (12 bytes para GCM).
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv(this.algorithm, this.key, iv);
     let encrypted = cipher.update(text, 'utf8', 'hex');
@@ -157,7 +153,6 @@ class ElectronStorage {
 
   decrypt(text) {
     try {
-      // Verifica se é formato novo (com IV prefixado)
       if (text.includes(':')) {
         const parts = text.split(':');
         if (parts.length === 3) {
@@ -172,7 +167,6 @@ class ElectronStorage {
         }
       }
       
-      // Fallback para formato antigo
       return this.decryptLegacy(text);
     } catch (error) {
       console.error('[ADMIN-STORAGE] Erro ao desencriptar:', error.message);
@@ -184,8 +178,8 @@ class ElectronStorage {
   clearStorage() {
     try {
       if (fs.existsSync(this.storagePath)) {
-        fs.unlinkSync(this.storagePath); // Deleta o arquivo
-        this.data = {}; // Reseta os dados em memória
+        fs.unlinkSync(this.storagePath);
+        this.data = {};
         console.log('Admin storage apagado com sucesso!');
       }
     } catch (error) {
@@ -194,5 +188,4 @@ class ElectronStorage {
   }
 }
 
-// Exporta uma instância única
 module.exports = new ElectronStorage()

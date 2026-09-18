@@ -1,4 +1,3 @@
-// UI utilities - Admin App
 export function showLoading() {
   if (document.getElementById('loading-overlay')) return;
   const overlay = document.createElement('div');
@@ -27,11 +26,7 @@ export function showErrorPage(error, route) {
     </div>
   `;
 
-  // Ligado aqui, e não por delegação como o resto do painel: este ecrã aparece
-  // precisamente quando algo falhou a carregar, e o actions.js pode ser uma
-  // das coisas que falhou. Um botão de recuperação não pode depender do que
-  // está partido. (O atributo onclick saiu porque é ele que obriga o CSP a
-  // manter 'unsafe-inline'.)
+  // Ligado aqui e não por delegação: este ecrã aparece quando algo falhou a carregar, e o actions.js pode ser isso.
   const botao = mainContent.querySelector('#btnRecarregarErro');
   if (botao) botao.addEventListener('click', () => window.location.reload());
 }

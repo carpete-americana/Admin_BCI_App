@@ -1,11 +1,9 @@
-// Keyboard shortcuts handler - Admin App
 const { globalShortcut, BrowserWindow, ipcMain } = require('electron');
 const { DEBUG } = require('./config');
 
 function setupKeyboardShortcuts(clearCacheCallback) {
-  // F11 - Fullscreen (already registered in index.js)
+  // F11 (ecrã inteiro) está registado em index.js.
   
-  // Ctrl+R or F5 - Reload (with FOUC prevention)
   globalShortcut.register('CommandOrControl+R', () => {
     const win = BrowserWindow.getFocusedWindow();
     if (win) {
@@ -13,7 +11,6 @@ function setupKeyboardShortcuts(clearCacheCallback) {
       win.hide();
       win.reload();
       
-      // Show window when renderer is ready
       const showSafely = () => {
         if (!win.isDestroyed()) win.show();
       };
@@ -33,7 +30,6 @@ function setupKeyboardShortcuts(clearCacheCallback) {
       win.hide();
       win.reload();
       
-      // Show window when renderer is ready
       const showSafely = () => {
         if (!win.isDestroyed()) win.show();
       };
@@ -46,7 +42,6 @@ function setupKeyboardShortcuts(clearCacheCallback) {
     }
   });
 
-  // Ctrl+Shift+R - Hard reload (clear cache and reload)
   globalShortcut.register('CommandOrControl+Shift+R', () => {
     const win = BrowserWindow.getFocusedWindow();
     if (win) {
@@ -56,7 +51,6 @@ function setupKeyboardShortcuts(clearCacheCallback) {
         if (clearCacheCallback) clearCacheCallback();
         win.reload();
         
-        // Show window when renderer is ready
         const showSafely = () => {
           if (!win.isDestroyed()) win.show();
         };
@@ -70,7 +64,6 @@ function setupKeyboardShortcuts(clearCacheCallback) {
     }
   });
 
-  // Ctrl+Shift+C - Clear GitHub cache
   globalShortcut.register('CommandOrControl+Shift+C', () => {
     DEBUG && console.log('[SHORTCUT] Clearing cache');
     if (clearCacheCallback) {
@@ -82,7 +75,7 @@ function setupKeyboardShortcuts(clearCacheCallback) {
     }
   });
 
-  // Ctrl+Shift+I - Toggle DevTools (only in DEBUG mode)
+  // Ctrl+Shift+I só em DEBUG.
   if (DEBUG) {
     globalShortcut.register('CommandOrControl+Shift+I', () => {
       const win = BrowserWindow.getFocusedWindow();

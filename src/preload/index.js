@@ -1,16 +1,7 @@
-// preload.js - exposes electron APIs and cache helpers - Admin App
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld("electronAPI", {
-    // joinPaths/fileExists/readFile SAÍRAM.
-    //
-    // Anunciavam os canais "path:join", "fs:fileExists" e "fs:readFile", para
-    // os quais não existe — nem deve existir — nenhum ipcMain.handle: leitura
-    // arbitrária de ficheiros a partir do renderer foi fechada de propósito.
-    // O que ficava era uma promessa rejeitada e, pior, um mapa do que já houve
-    // aqui, apontando a quem sonde exatamente que canais valeria a pena tentar
-    // reabrir. Se algum dia for preciso ler um ficheiro local, faz-se como o
-    // assets:getLocal: caminho validado no processo principal.
+    // Sem canais de leitura de ficheiros: isso passa pelo processo principal com validação (ver assets:getLocal).
     logout: () => ipcRenderer.invoke("logout"),
     listAssetsCss: () => ipcRenderer.invoke('assets:listCss'),
     listAssetsJs: () => ipcRenderer.invoke('assets:listJs'),
@@ -23,18 +14,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
     detachPage: (route, title) => ipcRenderer.invoke('detach-page', route, title),
     clearBrowserCache: () => ipcRenderer.invoke('cache:clearBrowser'),
     
-    // Metrics
     trackPageLoad: (pageName, startTime) => ipcRenderer.invoke('metrics:trackPageLoad', pageName, startTime),
     trackFeature: (featureName) => ipcRenderer.invoke('metrics:trackFeature', featureName),
     getMetrics: () => ipcRenderer.invoke('metrics:getSummary'),
     
-    // Trigger updater actions in main
     downloadUpdate: () => ipcRenderer.send('download-update'),
-    // Install and update - pode receber installerPath como parâmetro
+    // O caminho é ignorado no processo principal.
     InstallAndUpdate: (installerPath) => ipcRenderer.send('install-and-update', installerPath),
     installAndUpdate: (installerPath) => ipcRenderer.send('install-and-update', installerPath),
 
-    // Odds Scraper (local)
+    // Scraper de odds local
     getOdds: (sports, sites, options) => ipcRenderer.invoke('odds:get', sports, sites, options),
     refreshOdds: (sports, sites, options) => ipcRenderer.invoke('odds:refresh', sports, sites, options),
     getOddsSports: () => ipcRenderer.invoke('odds:sports'),
@@ -47,12 +36,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.removeAllListeners('odds:progress');
     },
 
-    // Navegação vinda do processo principal (menu do tray).
-    //
-    // O tray já enviava 'navigate-to' desde sempre, mas não havia ponte nenhuma
-    // para o renderer — e com contextIsolation:true a página não tem acesso ao
-    // ipcRenderer por fora. As entradas "Dashboard"/"Utilizadores"/"Transações"
-    // do menu traziam a janela para a frente e não mudavam de página.
+    // Navegação pedida pelo menu do tray.
     onNavigateTo: (cb) => {
       ipcRenderer.on('navigate-to', (e, route) => cb && cb(route));
     },
@@ -62,7 +46,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.on('cache-cleared', () => cb && cb());
     },
 
-    // Updater event listeners
     onUpdateAvailable: (cb) => {
       ipcRenderer.on('update-available', (e, data) => cb && cb(data));
     },
@@ -90,7 +73,7 @@ contextBridge.exposeInMainWorld("githubCache", {
     clearAll: () => ipcRenderer.invoke("github-cache:clearAll")
 });
 
-// Testing helper (DEV ONLY)
+// Só em desenvolvimento.
 contextBridge.exposeInMainWorld("test", {
     simulateUpdate: () => ipcRenderer.invoke('test:simulateUpdate')
 });

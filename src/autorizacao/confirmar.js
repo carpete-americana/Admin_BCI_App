@@ -1,12 +1,6 @@
 'use strict';
 
-/**
- * A página da janela de autorização. Só mostra e responde: quem decide o que
- * a resposta vale é o processo principal (ver src/main/janela-autorizacao.js).
- *
- * Todo o texto entra com textContent. A mensagem de erro vem da API, e nada que
- * venha de fora é HTML aqui dentro.
- */
+/** Página da janela de autorização: mostra o pedido e envia a resposta. O texto entra sempre por textContent. */
 (async () => {
   const cartao = document.getElementById('cartao');
   const titulo = document.getElementById('titulo');
@@ -19,7 +13,7 @@
 
   const estado = await window.bciAutorizacao.estado();
   if (!estado) {
-    // Não há pedido nenhum para esta janela. Não se mostra nada a meio.
+    // Sem pedido para esta janela.
     window.bciAutorizacao.responder(false);
     return;
   }
@@ -51,8 +45,7 @@
     if (!btnAutorizar.disabled) responder(true);
   });
 
-  // Escape recusa. Enter NÃO autoriza: o foco começa no Recusar, e é esse que
-  // o Enter carrega — quem carrega em Enter sem ler está a dizer que não.
+  // Escape recusa. O foco começa no Recusar, por isso Enter recusa.
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -64,18 +57,8 @@
 
   if (estado.tipo !== 'confirmar') return;
 
-  // ------------------------------------------------------------------
-  // O "AUTORIZAR" SÓ SE ACENDE UM INSTANTE DEPOIS DE A JANELA TER FOCO.
-  //
-  // Qualquer site consegue fazer esta janela aparecer, e consegue escolher o
-  // MOMENTO: enquanto a pessoa está a clicar noutra coisa, a janela surge
-  // debaixo do cursor e o clique cai no botão errado. É o mesmo truque que os
-  // browsers travam nos pedidos de permissão, e da mesma maneira: um atraso,
-  // que recomeça sempre que a janela perde o foco.
-  //
-  // O processo principal volta a verificar o tempo do lado de lá, para o caso
-  // de alguma coisa conseguir mandar a resposta sem passar por este botão.
-  // ------------------------------------------------------------------
+  // O Autorizar só acende um instante depois de a janela ter foco, e apaga ao perdê-lo.
+  // Evita que um clique dirigido a outra janela caia aqui; o processo principal volta a verificar o tempo.
   const ATRASO_MS = 900;
   let temporizador = null;
 

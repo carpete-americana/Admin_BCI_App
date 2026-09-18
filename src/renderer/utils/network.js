@@ -1,4 +1,3 @@
-// Network status banner utilities - Admin App
 export function showOfflineBanner() {
   if (document.getElementById('offline-banner')) return;
   const banner = document.createElement('div');

@@ -1,8 +1,6 @@
-// Performance monitoring and metrics - Admin App
 const { app } = require('electron');
 const { DEBUG } = require('./config');
 
-// Metrics storage
 const metrics = {
   sessionStart: Date.now(),
   pageLoads: {},
@@ -14,7 +12,6 @@ const metrics = {
   }
 };
 
-// Track page load time
 function trackPageLoad(pageName, startTime) {
   const loadTime = Date.now() - startTime;
   
@@ -33,7 +30,6 @@ function trackPageLoad(pageName, startTime) {
   return loadTime;
 }
 
-// Track feature usage
 function trackFeatureUsage(featureName) {
   if (!metrics.featureUsage[featureName]) {
     metrics.featureUsage[featureName] = 0;
@@ -43,7 +39,6 @@ function trackFeatureUsage(featureName) {
   DEBUG && console.log(`[METRICS] Feature "${featureName}" used ${metrics.featureUsage[featureName]} times`);
 }
 
-// Track cache performance
 function trackCacheHit(hit = true) {
   if (hit) {
     metrics.performance.cacheHitRate.hits++;
@@ -57,7 +52,6 @@ function trackCacheHit(hit = true) {
   DEBUG && console.log(`[METRICS] Cache hit rate: ${hitRate}% (${metrics.performance.cacheHitRate.hits}/${total})`);
 }
 
-// Track error
 function trackError(error, context = '') {
   metrics.errors.push({
     timestamp: Date.now(),
@@ -66,18 +60,15 @@ function trackError(error, context = '') {
     stack: error.stack
   });
   
-  // Keep only last 50 errors
   if (metrics.errors.length > 50) {
     metrics.errors = metrics.errors.slice(-50);
   }
 }
 
-// Get session duration
 function getSessionDuration() {
-  return Math.round((Date.now() - metrics.sessionStart) / 1000); // in seconds
+  return Math.round((Date.now() - metrics.sessionStart) / 1000); // segundos
 }
 
-// Get metrics summary
 function getMetricsSummary() {
   const summary = {
     sessionDuration: getSessionDuration(),
@@ -95,7 +86,6 @@ function getMetricsSummary() {
   return summary;
 }
 
-// Log metrics summary (called on app quit or periodically)
 function logMetricsSummary() {
   const summary = getMetricsSummary();
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -125,7 +115,6 @@ function logMetricsSummary() {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 }
 
-// Setup metrics logging on app quit
 function setupMetrics() {
   app.on('before-quit', () => {
     if (DEBUG) {
@@ -133,7 +122,6 @@ function setupMetrics() {
     }
   });
   
-  // Log metrics every 5 minutes in debug mode
   if (DEBUG) {
     setInterval(() => {
       logMetricsSummary();

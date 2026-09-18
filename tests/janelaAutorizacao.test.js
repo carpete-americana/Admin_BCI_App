@@ -1,16 +1,6 @@
 'use strict';
 
-// ---------------------------------------------------------------------------
-// A JANELA DE AUTORIZAÇÃO É DA APLICAÇÃO, E NÃO DO WINDOWS.
-//
-// Era uma caixa nativa (`dialog.showMessageBox`). Passou a ser uma janela
-// desenhada por nós, a pedido — e a caixa nativa dava de graça uma garantia
-// que agora tem de ser feita à mão: NENHUMA PÁGINA CONSEGUE RESPONDER-LHE.
-//
-// A confirmação é a única coisa entre "um site disparou bciadmin://" e "esse
-// site abriu sessão de ADMIN". Cada teste abaixo guarda uma das peças que
-// sustentam isso. Nenhuma é decorativa.
-// ---------------------------------------------------------------------------
+// Garantias da janela de confirmação: nenhuma página a pode responder.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -28,18 +18,13 @@ const pagina = ler('src', 'autorizacao', 'confirmar.js');
 
 const semComentarios = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
-// --------------------------------------------------- nada da caixa nativa ---
-
 test('já não há caixa do Windows no fluxo de autorização', () => {
   assert.doesNotMatch(semComentarios(painel), /dialog\./);
   assert.match(painel, /janelaAutorizacao\.mostrar\(/);
 });
 
-// ------------------------------------------------------- a página é local ---
-
 test('a página vem do disco, e a janela não navega para mais lado nenhum', () => {
-  // A janela principal carrega páginas da rede. Um "Autorizar" desenhado lá
-  // podia ser carregado por qualquer script que lá corresse.
+  // A janela principal carrega páginas da rede.
   assert.match(janela, /loadFile\(path\.join\(__dirname, '\.\.', 'autorizacao', 'confirmar\.html'\)\)/);
   assert.doesNotMatch(semComentarios(janela), /loadURL\(/);
   assert.match(janela, /'will-navigate', \(e\) => e\.preventDefault\(\)/);
@@ -55,8 +40,6 @@ test('a página não carrega nada de fora nem corre nada inline', () => {
 });
 
 test('o que está escondido fica mesmo escondido', () => {
-  // Um display no CSS ganha ao atributo hidden: o "Abre em" aparecia vazio na
-  // janela de erro.
   const css = ler('src', 'autorizacao', 'confirmar.css');
   assert.match(css, /\[hidden\] \{ display: none !important; \}/);
 });
@@ -75,11 +58,7 @@ test('o texto entra com textContent, nunca como HTML', () => {
   assert.match(pagina, /texto\.textContent = estado\.texto/);
 });
 
-// -------------------------------------------------- nada partilhado ---
-
 test('sessão própria em memória, e não a da janela principal', () => {
-  // A janela principal tem o token de admin ao alcance. Esta não precisa, e
-  // não pode.
   assert.match(janela, /partition: PARTICAO/);
   assert.match(janela, /const PARTICAO = '[a-z-]+';/);
   assert.doesNotMatch(janela, /const PARTICAO = 'persist:/, 'uma partição persist: fica no disco');
@@ -106,8 +85,6 @@ test('a resposta é enviada como booleano estrito', () => {
   assert.match(janela, /terminar\(sim === true\)/);
 });
 
-// --------------------------------------------- só esta janela, uma vez ---
-
 test('só a janela do pedido pode ler e responder', () => {
   assert.match(janela, /if \(!pendente \|\| e\.sender !== pendente\.janela\.webContents\) return null;/);
   assert.match(janela, /if \(!pendente \|\| e\.sender !== pendente\.janela\.webContents\) return;/);
@@ -128,8 +105,6 @@ test('uma janela de cada vez: pedidos em repetição são recusados', () => {
   assert.match(corpo, /return Promise\.resolve\(false\)/);
 });
 
-// ------------------------------------------- tudo o resto é um "não" ---
-
 test('fechar, rebentar, ou deixar passar o tempo é recusar', () => {
   assert.match(janela, /janela\.on\('closed',[\s\S]{0,120}terminar\(false\)/);
   assert.match(janela, /'render-process-gone',[\s\S]{0,120}terminar\(false\)/);
@@ -144,11 +119,8 @@ test('o foco começa no Recusar, Escape recusa, e Enter não autoriza', () => {
   assert.match(html, /id="btnAutorizar" disabled/, 'o Autorizar começa desligado');
 });
 
-// --------------------------------------------------- o clique cedo demais ---
-
 test('o Autorizar só acende depois de a janela ter foco, e apaga ao perdê-lo', () => {
-  // Um site escolhe o momento em que a janela aparece — e pode fazê-la surgir
-  // debaixo de um clique que ia para outro sítio.
+  // Um site escolhe quando a janela aparece e pode fazê-la surgir debaixo de um clique.
   assert.match(pagina, /const ATRASO_MS = \d{3,4};/);
   assert.match(pagina, /window\.addEventListener\('focus', armar\)/);
   assert.match(pagina, /window\.addEventListener\('blur'[\s\S]{0,80}btnAutorizar\.disabled = true/);
@@ -167,8 +139,6 @@ test('só um pedido do tipo confirmar pode devolver sim', () => {
   assert.match(janela, /if \(sim === true && pendente\.dados\.tipo === 'confirmar'\)/);
   assert.match(pagina, /if \(estado\.tipo !== 'confirmar'\) return;/);
 });
-
-// --------------------------------------------------------- vai no instalador ---
 
 test('a pasta da janela entra no instalador', () => {
   const pkg = JSON.parse(ler('package.json'));

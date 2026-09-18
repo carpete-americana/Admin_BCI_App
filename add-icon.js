@@ -2,9 +2,8 @@ const path = require('path');
 const { execSync } = require('child_process');
 const fs = require('fs');
 
-// Hook do electron-builder - recebe context como parâmetro
+// Hook do electron-builder.
 exports.default = async function(context) {
-  // Apenas processar no Windows
   if (context.electronPlatformName !== 'win32') {
     return;
   }
@@ -15,7 +14,6 @@ exports.default = async function(context) {
   const exePath = path.join(context.appOutDir, `${productName}.exe`);
   const iconPath = path.join(__dirname, 'build', 'app-icon.ico');
   
-  // Buscar rcedit no node_modules
   const rceditPath = path.join(__dirname, 'node_modules', 'electron-winstaller', 'vendor', 'rcedit.exe');
   
   if (!fs.existsSync(exePath)) {
@@ -38,7 +36,6 @@ exports.default = async function(context) {
   console.log('Executável:', exePath);
   console.log('Ícone:', iconPath);
   
-  // Usar rcedit para adicionar o ícone
   const cmd = `"${rceditPath}" "${exePath}" --set-icon "${iconPath}"`;
   
   execSync(cmd, { stdio: 'inherit' });

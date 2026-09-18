@@ -1,4 +1,3 @@
-// System tray icon handler - Admin App
 const { app, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const { DEBUG } = require('./config');
@@ -6,19 +5,17 @@ const { DEBUG } = require('./config');
 let tray = null;
 
 function createTray(showWindowCallback, quitCallback) {
-  // Try to load tray icon from assets folder
   const iconPath = path.join(__dirname, '../../assets/icons/tray-icon.png');
   
   let icon;
   try {
     icon = nativeImage.createFromPath(iconPath);
     if (icon.isEmpty()) {
-      // Fallback: try build folder
       const buildIconPath = path.join(__dirname, '../../build/tray-icon.png');
       icon = nativeImage.createFromPath(buildIconPath);
       
       if (icon.isEmpty()) {
-        // Last resort: create a simple colored square as icon
+        // Último recurso: ícone gerado.
         const canvas = { width: 16, height: 16 };
         icon = nativeImage.createEmpty();
         DEBUG && console.warn('[TRAY] No icon found, using empty icon');
@@ -46,7 +43,6 @@ function createTray(showWindowCallback, quitCallback) {
       label: 'Dashboard',
       click: () => {
         if (showWindowCallback) showWindowCallback();
-        // Send event to navigate to dashboard
         const { BrowserWindow } = require('electron');
         const win = BrowserWindow.getFocusedWindow();
         if (win) win.webContents.send('navigate-to', 'dashboard');
@@ -85,7 +81,6 @@ function createTray(showWindowCallback, quitCallback) {
   tray.setToolTip('BCi Admin Application');
   tray.setContextMenu(contextMenu);
   
-  // Double click to show window
   tray.on('double-click', () => {
     DEBUG && console.log('[TRAY] Double clicked');
     if (showWindowCallback) showWindowCallback();

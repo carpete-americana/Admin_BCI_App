@@ -1,64 +1,27 @@
 'use strict';
 
 /**
- * A JANELA QUE PERGUNTA SE AUTORIZAS — da aplicação, e não do Windows.
- *
- * Era um `dialog.showMessageBox`: funcionava, mas era uma caixa cinzenta do
- * sistema no meio de uma aplicação com cara própria. Passou a ser uma janela
- * desenhada por nós.
- *
- * O QUE A CAIXA DO SISTEMA DAVA DE GRAÇA, E QUE AQUI TEM DE SER FEITO À MÃO
- *
- * A confirmação é a única coisa entre "um site disparou bciadmin://" e "esse
- * site abriu sessão de ADMIN". A caixa nativa garantia, sem esforço, que
- * nenhuma página a conseguia responder. Uma janela nossa só garante o mesmo se:
- *
- * - **A página vem do disco.** A janela principal carrega páginas da rede, e
- *   um "Autorizar" desenhado lá podia ser carregado por qualquer script que lá
- *   corresse. Esta carrega src/autorizacao/confirmar.html, instalado com a
- *   aplicação, e não navega para mais lado nenhum.
- *
- * - **Não partilha nada com a janela principal.** Sessão própria em memória
- *   (`partition` sem `persist:`) e preload próprio, que só expõe "ler o pedido"
- *   e "responder". O token de admin não está ao alcance desta página.
- *
- * - **Só esta janela responde, e só uma vez.** O processo principal compara o
- *   remetente com o webContents desta janela; uma resposta vinda de qualquer
- *   outro lado é ignorada.
- *
- * - **Tudo o que não seja um "sim" explícito é um "não".** Fechar, Escape, o
- *   tempo acabar, a janela rebentar.
- *
- * - **O "sim" não pode chegar cedo demais.** Um site escolhe o momento em que a
- *   janela aparece, e pode fazê-la surgir debaixo de um clique que ia para
- *   outro sítio. A página só acende o botão um instante depois de ter foco; e
- *   aqui volta a verificar-se, para o caso de a resposta chegar por outro
- *   caminho.
- *
- * - **Uma de cada vez.** Um site a disparar o esquema em repetição não empilha
- *   janelas: enquanto houver uma aberta, as seguintes são recusadas.
+ * Janela da app que pede a confirmação de uma autorização.
+ * Página local com sessão e preload próprios; só esta janela responde, e uma única vez.
+ * Fechar, Escape ou o tempo esgotar contam como recusa; um sim cedo demais é ignorado.
  */
 
 const path = require('path');
 const { app, BrowserWindow, ipcMain } = require('electron');
 const { DEBUG } = require('./config');
 
-/** Um "sim" que chegue antes disto, contado desde que a janela ficou visível, não conta. */
+/** Um sim antes deste tempo, contado desde que a janela ficou visível, não conta. */
 const ATRASO_MINIMO_MS = 600;
 
-/** Ninguém respondeu: é um "não". */
+/** Sem resposta neste tempo, é recusa. */
 const TEMPO_MAXIMO_MS = 2 * 60 * 1000;
 
-/** Uma sessão só desta janela, em memória. Sem `persist:`, morre com a aplicação. */
+/** Sessão em memória (sem persist:), só desta janela. */
 const PARTICAO = 'autorizacao-app';
 
 let pendente = null;
 
-/**
- * Os canais registam-se uma vez, e respondem SÓ à janela do pedido em curso.
- * `e.sender` é quem mandou; comparar com o webContents da janela é o que impede
- * outra página qualquer da aplicação de responder por ela.
- */
+/** Os canais só respondem ao webContents da janela do pedido em curso. */
 let canaisRegistados = false;
 function registarCanais() {
   if (canaisRegistados) return;
@@ -94,11 +57,7 @@ function terminar(resultado) {
   resolver(resultado);
 }
 
-/**
- * A janela é filha da principal só quando a principal está à vista. Minimizada
- * ou escondida na bandeja, uma filha modal ficava escondida com ela — e o
- * pedido chegava a quem está a olhar para o browser, não para a aplicação.
- */
+/** Só é filha da principal quando esta está visível; senão ficaria escondida com ela. */
 function paiVisivel(janelaPrincipal) {
   return janelaPrincipal &&
     !janelaPrincipal.isDestroyed() &&
@@ -108,17 +67,12 @@ function paiVisivel(janelaPrincipal) {
     : null;
 }
 
-/**
- * Mostra a janela e espera pela resposta.
- *
- * `dados.tipo` é 'confirmar' (Recusar / Autorizar), 'info' ou 'erro' (só
- * Fechar). Devolve `true` apenas para um "Autorizar" de um pedido 'confirmar'.
- */
+/** tipo: confirmar, info ou erro. Devolve true só para Autorizar num pedido confirmar. */
 function mostrar(dados, { janelaPrincipal = null } = {}) {
   registarCanais();
 
   if (pendente) {
-    // Já há uma aberta. Traz-se essa para a frente e esta é recusada.
+    // Já há uma aberta: traz essa para a frente e recusa esta.
     if (!pendente.janela.isDestroyed()) pendente.janela.focus();
     DEBUG && console.log('[AUTORIZACAO] já havia uma janela aberta; pedido recusado');
     return Promise.resolve(false);
@@ -128,8 +82,7 @@ function mostrar(dados, { janelaPrincipal = null } = {}) {
     const pai = paiVisivel(janelaPrincipal);
 
     const janela = new BrowserWindow({
-      // Com folga: a mensagem de erro vem da API e não se sabe o tamanho. Se
-      // não couber, é o texto que ganha scroll — os botões ficam sempre à vista.
+      // Com folga: a mensagem de erro vem da API, e o texto ganha scroll se não couber.
       width: 440,
       height: dados.tipo === 'confirmar' ? 372 : 300,
       useContentSize: true,

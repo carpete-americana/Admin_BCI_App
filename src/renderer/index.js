@@ -1,25 +1,20 @@
-// Main renderer process - loads pages and manages UI - Admin App
 import { showLoading, hideLoading, showErrorPage } from './utils/ui.js';
 import { showOfflineBanner, hideOfflineBanner } from './utils/network.js';
 import { fetchWithCache, DEFAULT_TTL } from './utils/cache.js';
 
 let Utils = null;
-let DEBUG = false; // Will be set from main process via IPC
+let DEBUG = false;
 let routes = {};
 export let currentPage = null;
 
-// ============ GLOBAL ERROR BOUNDARY ============
 window.addEventListener('error', (event) => {
   console.error('[GLOBAL ERROR]', event.message, event.filename, event.lineno);
-  // Não impede propagação para permitir debugging
 });
 
 window.addEventListener('unhandledrejection', (event) => {
   console.error('[UNHANDLED REJECTION]', event.reason);
-  // Não impede propagação para permitir debugging
 });
 
-// Load DEBUG mode from main process
 (async () => {
   try {
     DEBUG = await window.electronAPI.getDebugMode();
@@ -29,12 +24,10 @@ window.addEventListener('unhandledrejection', (event) => {
 })();
 
 
-/* CSS injection: injects <style data-page-css> with cached content */
 async function injectCSSFromRoute(route) {
   const cssPath = `${route}/styles.css`;
   try {
     const res = await fetchWithCache(cssPath);
-    // remove existing
     document.querySelectorAll('[data-page-css]').forEach(n => n.remove());
     const style = document.createElement('style');
     style.setAttribute('data-page-css', route);
@@ -45,7 +38,6 @@ async function injectCSSFromRoute(route) {
   }
 }
 
-/* Load all global asset CSS files from assets/css/ */
 async function loadAllAssetsCSS() {
   try {
     let list = null;
@@ -66,7 +58,6 @@ async function loadAllAssetsCSS() {
       if (!filename || typeof filename !== 'string') continue;
       const path = `assets/css/${filename}`;
       try {
-        // skip if already injected
         if (document.querySelector(`style[data-asset-css="${path}"]`)) {
           DEBUG && console.log(`[loadAllAssetsCSS] already injected ${path}`);
           continue;
@@ -95,7 +86,7 @@ async function loadAllAssetsCSS() {
   }
 }
 
-/* Load all global asset JS files from assets/js/ with guaranteed order (utils.js, api.js first) */
+/* utils.js e api.js carregam primeiro. */
 async function loadAllAssetsJS() {
   try {
     let names = [];
@@ -108,7 +99,6 @@ async function loadAllAssetsJS() {
     }
     if (!Array.isArray(names) || names.length === 0) return;
 
-    // Ensure critical modules load first (utils, api)
     const critical = ['utils.js', 'api.js'];
     const ordered = [...critical.filter(c => names.includes(c)), ...names.filter(n => !critical.includes(n))];
 
@@ -143,7 +133,7 @@ async function loadAllAssetsJS() {
   }
 }
 
-/* Execute page script: import from blob so modules work */
+/* Importa o script da página a partir de um blob, para funcionar como módulo. */
 async function executePageScript(route) {
   const jsPath = `${route}/index.js`;
   try {
@@ -165,7 +155,6 @@ async function executePageScript(route) {
   }
 }
 
-/* Load HTML, CSS, JS for a route */
 export async function loadPage(route) {
   if (!route) route = 'dashboard';
   if (route === currentPage) return;
@@ -179,21 +168,17 @@ export async function loadPage(route) {
     const htmlRes = await fetchWithCache(`${route}/index.html`);
     const html = htmlRes.content;
     if (!html) throw new Error('HTML vazio');
-    // inject HTML
     document.getElementById('main-content').innerHTML = html;
     const meta = routes[route] || {};
     document.title = `${meta.title || route} | BCi Admin`;
-    // CSS and JS
     await injectCSSFromRoute(route);
     await executePageScript(route);
     if (window.updateActiveMenu) window.updateActiveMenu(route);
     
-    // Update user info (name, email) via shared header-widgets.js
     if (window.updateGlobalUserInfo) await window.updateGlobalUserInfo();
     
     window.history.pushState({}, '', `#${route}`);
     
-    // Track page load performance
     if (window.electronAPI && window.electronAPI.trackPageLoad) {
       window.electronAPI.trackPageLoad(route, pageLoadStart);
     }
@@ -205,11 +190,9 @@ export async function loadPage(route) {
   }
 }
 
-/* navigateTo */
 window.navigateTo = async (route) => {
   await hideLoading();
   
-  // Track navigation feature usage
   if (window.electronAPI && window.electronAPI.trackFeature) {
     window.electronAPI.trackFeature(`navigate-${route}`);
   }
@@ -217,12 +200,8 @@ window.navigateTo = async (route) => {
   loadPage(route);
 };
 
-/* Init */
 document.addEventListener('DOMContentLoaded', async () => {
-  // Navegação pedida pelo menu do tray. Registado ANTES do resto do init: o
-  // clique no tray pode chegar a qualquer momento, e é aqui que o canal
-  // 'navigate-to' — que o processo principal já emitia sem ninguém do outro
-  // lado — passa finalmente a mudar de página.
+  // Registado antes do resto do arranque: o clique no tray pode chegar a qualquer momento.
   if (window.electronAPI && typeof window.electronAPI.onNavigateTo === 'function') {
     window.electronAPI.onNavigateTo((route) => {
       if (route) window.navigateTo(route);
@@ -236,37 +215,30 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   try {
-    // Check version and clear cache if major update
+    // Mudança de versão maior: limpa as caches.
     const currentVersion = await window.electronAPI.getVersion();
     const lastVersion = await window.electronStorage.getItem('admin-app-version');
     
     if (lastVersion && lastVersion.charAt(0) !== currentVersion.charAt(0)) {
       DEBUG && console.log('[VERSION] Major update detected, clearing all caches');
-      // Clear cache
       await window.githubCache.clearAll();
-      // Clear browser cache
       if (window.electronAPI && window.electronAPI.clearBrowserCache) {
         await window.electronAPI.clearBrowserCache();
       }
-      // Store new version
       await window.electronStorage.setItem('admin-app-version', currentVersion);
       DEBUG && console.log('[VERSION] Cache cleared, reloading...');
-      // Reload to get fresh content
       window.location.reload();
       return;
     }
     
-    // Store version if not set
     if (!lastVersion) {
       await window.electronStorage.setItem('admin-app-version', currentVersion);
     }
     
-    // Network status banner handlers
     window.addEventListener('offline', () => {
       if (document.getElementById('offline-start-flag')) return;
       showOfflineBanner();
       
-      // Notify main process
       if (window.electronAPI && window.electronAPI.trackFeature) {
         window.electronAPI.trackFeature('network-offline');
       }
@@ -275,13 +247,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.addEventListener('online', () => {
       hideOfflineBanner();
       
-      // Notify main process
       if (window.electronAPI && window.electronAPI.trackFeature) {
         window.electronAPI.trackFeature('network-online');
       }
     });
 
-    // If we started offline, navigate to standalone offline page
     if (!navigator.onLine) {
       hideOfflineBanner();
       try {
@@ -294,7 +264,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     showLoading();
 
-    // Check if server is available
     if (window.electronAPI && typeof window.electronAPI.checkServerStatus === 'function') {
       try {
         const serverAvailable = await window.electronAPI.checkServerStatus();
@@ -313,10 +282,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
 
-    // Load global JS assets first (utils/api)
     await loadAllAssetsJS().catch(e => console.warn('loadAllAssetsJS failed', e));
 
-    // If Utils failed to load (e.g. rate limited), retry once after a short delay
+    // Se o Utils não carregou (por exemplo, limite de pedidos), tenta de novo uma vez.
     if (!Utils) {
       console.warn('[INIT] Utils not loaded, retrying in 2s...');
       await new Promise(r => setTimeout(r, 2000));
@@ -325,14 +293,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const session = Utils ? await Utils.findSession(false) : null;
     if (!session) {
-      // No session: load login page
       try {
         showLoading();
         const htmlRes = await fetchWithCache('login/index.html');
         const html = htmlRes.content;
         if (!html) throw new Error('Login HTML vazio');
 
-        // Remove app chrome
         try {
           const chromeSelectors = ['.sidebar', '.main-header', '#update-badge', '.profile-card', '#sidebar-menu'];
           chromeSelectors.forEach(sel => {
@@ -342,25 +308,19 @@ document.addEventListener('DOMContentLoaded', async () => {
           DEBUG && console.warn('Could not remove chrome elements:', e.message);
         }
 
-        // Load CSS FIRST to prevent FOUC
         await injectCSSFromRoute('login');
         
-        // Then inject HTML
         document.body.innerHTML = html;
         document.title = 'Login | BCi Admin';
         
-        // Execute page script
         await executePageScript('login');
         
-        // Hide loading and show page
         await hideLoading();
         
-        // Make body visible with smooth transition
         requestAnimationFrame(() => {
           document.body.classList.add('ready');
         });
 
-        // Signal renderer ready after everything is loaded and visible
         setTimeout(() => {
           window.electronAPI.rendererReady && window.electronAPI.rendererReady();
         }, 150);
@@ -370,25 +330,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         showErrorPage(err, 'login');
         document.body.style.opacity = '1';
         document.body.classList.add('ready');
-        // Still signal ready even on error so window shows
         window.electronAPI.rendererReady && window.electronAPI.rendererReady();
       }
       return;
     }
 
-    // Authenticated: load global asset CSS
     await loadAllAssetsCSS().catch(e => console.warn('loadAllAssetsCSS failed', e));
 
-    // Routes loaded from Frontend API via sidebar.js
+    // As rotas vêm da Admin Frontend API (sidebar.js).
     routes = window.adminRoutes || {};
     if (window.generateSidebarMenu) window.generateSidebarMenu();
     
-    // Hide content while loading dashboard to prevent flash
     document.body.style.opacity = '0';
     
     const initialRoute = window.location.hash.substring(1) || 'dashboard';
 
-    // Detached mode: hide sidebar/header, only show page content
+    // Modo destacado: só o conteúdo da página, sem barra lateral nem cabeçalho.
     const isDetached = new URLSearchParams(window.location.search).get('detached') === 'true';
     if (isDetached) {
       document.querySelectorAll('.sidebar, .main-header, #update-badge').forEach(el => {
@@ -407,13 +364,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     await hideLoading();
     
-    // Make body visible with smooth fade-in
     requestAnimationFrame(() => {
       document.body.style.opacity = '1';
       document.body.classList.add('ready');
     });
 
-    // Signal main process that renderer is ready
     if (window.electronAPI && typeof window.electronAPI.rendererReady === 'function') {
       setTimeout(() => {
         window.electronAPI.rendererReady && window.electronAPI.rendererReady();
@@ -428,10 +383,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('renderer init error', err);
     await hideLoading();
     showErrorPage(err, 'dashboard');
-    // Ensure body is visible even on error (opacity may have been set to 0)
+    // Garante o corpo visível no ecrã de erro (a opacidade pode estar a 0).
     document.body.style.opacity = '1';
     document.body.classList.add('ready');
-    // Signal main process that renderer is ready (error page is still usable)
     if (window.electronAPI && typeof window.electronAPI.rendererReady === 'function') {
       window.electronAPI.rendererReady();
     }

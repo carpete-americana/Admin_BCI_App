@@ -2,16 +2,8 @@
 <html lang="pt">
 <head>
   <meta charset="utf-8">
-  <!--
-    Esta página é da APLICAÇÃO e vem do disco, nunca da rede.
-
-    É isso que a torna de confiança para pedir uma autorização: a janela
-    principal carrega páginas da Frontend API, e um botão "Autorizar" desenhado
-    lá podia ser carregado por qualquer script que lá corresse. Aqui não corre
-    nada que não tenha sido instalado com a aplicação.
-
-    CSP fechada: nada de fora, nada inline.
-  -->
+  <!-- Página local da app, nunca da rede: por isso pode pedir uma autorização.
+       CSP sem recursos de fora nem código inline. -->
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:">
   <title>Autorizar o navegador</title>

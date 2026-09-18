@@ -1,4 +1,3 @@
-// Main process entry point - Admin App
 require('dotenv').config();
 const { app, globalShortcut, ipcMain, BrowserWindow } = require('electron');
 const ElectronStorage = require('../../js/storage');
@@ -14,27 +13,22 @@ const metrics = require('./metrics');
 const assets = require('./assets');
 const oddsScraper = require('./odds-scraper');
 
-// IPC Handlers - GitHub Cache
 ipcMain.handle('github-cache:fetch', cache.handleFetch);
 ipcMain.handle('github-cache:fetchAsset', cache.handleFetchAsset);
 ipcMain.handle('github-cache:clear', cache.handleClear);
 ipcMain.handle('github-cache:clearAll', cache.handleClearAll);
 
-// IPC Handlers - Assets
 ipcMain.handle('assets:listCss', cache.listCssFiles);
 ipcMain.handle('assets:listJs', cache.listJsFiles);
 ipcMain.handle('assets:getLocal', (e, path) => assets.getAssetDataUrl(path));
 
-// IPC Handlers - Routes and Config (routes loaded from Frontend API via sidebar.js)
 ipcMain.handle('app:getDebugMode', () => DEBUG);
 ipcMain.handle('app:getVersion', () => require('../../package.json').version);
 
-// IPC Handlers - Metrics
 ipcMain.handle('metrics:trackPageLoad', (e, pageName, startTime) => metrics.trackPageLoad(pageName, startTime));
 ipcMain.handle('metrics:trackFeature', (e, featureName) => metrics.trackFeatureUsage(featureName));
 ipcMain.handle('metrics:getSummary', () => metrics.getMetricsSummary());
 
-// IPC Handlers - Testing (DEV ONLY)
 if (DEBUG) {
   ipcMain.handle('test:simulateUpdate', () => {
     DEBUG && console.log('[TEST] Simulating update available');
@@ -43,12 +37,10 @@ if (DEBUG) {
   });
 }
 
-// IPC Handlers - Navigation and Auth
 ipcMain.handle('navigate', window.handleNavigate);
 ipcMain.handle('logout', window.handleLogout);
 ipcMain.handle('detach-page', window.handleDetachPage);
 
-// IPC Handlers - Cache Management
 ipcMain.handle('cache:clearBrowser', async (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   if (win) {
@@ -57,24 +49,21 @@ ipcMain.handle('cache:clearBrowser', async (e) => {
   }
 });
 
-// IPC Handlers - Storage
 ipcMain.handle('storage:set', (e, k, v) => ElectronStorage.setItem(k, v));
 ipcMain.handle('storage:get', (e, k) => ElectronStorage.getItem(k));
 ipcMain.handle('storage:remove', (e, k) => ElectronStorage.removeItem(k));
 
-// IPC Handlers - Odds Scraper (local)
 ipcMain.handle('odds:get', (e, sports, sites, options) => oddsScraper.getOdds(sports, false, sites, options));
 ipcMain.handle('odds:refresh', (e, sports, sites, options) => oddsScraper.getOdds(sports, true, sites, options));
 ipcMain.handle('odds:sports', () => oddsScraper.getSports());
 ipcMain.handle('odds:clearCache', () => oddsScraper.clearCache());
 ipcMain.handle('odds:progress', () => oddsScraper.getProgress());
 
-// IPC Handler - Check Server Status
 ipcMain.handle('app:checkServerStatus', async () => {
   try {
     const { API_CONFIG } = require('./config');
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000); // 5s timeout
+    const timeout = setTimeout(() => controller.abort(), 5000);
     
     const response = await fetch(`${API_CONFIG.BASE_URL}/api/list`, {
       signal: controller.signal
@@ -87,27 +76,21 @@ ipcMain.handle('app:checkServerStatus', async () => {
   }
 });
 
-// Setup updater handlers
 updater.setupUpdateHandlers();
 
-// Setup error handlers early
 errorHandler.setupErrorHandlers();
 
 let mainWindow = null;
 let appTray = null;
 
-// Single instance lock - prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
-  // Another instance is already running, quit this one
   DEBUG && console.log('[APP] Another instance detected, quitting...');
   app.quit();
 } else {
-  // This is the first instance, handle second-instance events
   app.on('second-instance', (event, commandLine, workingDirectory) => {
     DEBUG && console.log('[APP] Second instance detected, showing existing window');
-    // Someone tried to run a second instance, we should focus our window instead
     if (mainWindow) {
       if (!mainWindow.isDestroyed()) {
         if (mainWindow.isMinimized()) mainWindow.restore();
@@ -116,19 +99,12 @@ if (!gotTheLock) {
       }
     }
 
-    // UMA LIGAÇÃO `bciadmin://` CHEGA POR AQUI.
-    //
-    // No Windows não há evento próprio: o sistema lança o executável outra vez
-    // com o endereço na linha de comandos, e o bloqueio de instância única
-    // transforma isso neste evento. Se a aplicação estivesse fechada, o
-    // endereço vem no `process.argv` do arranque — tratado mais abaixo.
+    // No Windows, uma ligação bciadmin:// chega como segunda instância, com o endereço na linha de comandos.
     tratarLigacao(commandLine);
   });
 
-// ---- Abrir sessão no painel a partir daqui (ver autorizacao-painel.js) ----
 const autorizacaoPainel = require('./autorizacao-painel');
 
-/** Lê o token desta aplicação. O armazenamento já devolve a string desembrulhada. */
 async function lerTokenDeAdmin() {
   try {
     const valor = await ElectronStorage.getItem('admin-token');
@@ -139,12 +115,7 @@ async function lerTokenDeAdmin() {
   }
 }
 
-/**
- * Procura um pedido de autorização numa linha de comandos e trata-o.
- *
- * Silencioso quando não há nada: a esmagadora maioria dos arranques e das
- * segundas instâncias não tem ligação nenhuma, e isto corre em ambos.
- */
+/** Procura um pedido de autorização numa linha de comandos e trata-o. */
 function tratarLigacao(argv) {
   const pedido = autorizacaoPainel.procurarNosArgumentos(argv);
   if (!pedido) return;
@@ -158,37 +129,28 @@ function tratarLigacao(argv) {
   });
 }
 
-// App lifecycle
 app.whenReady().then(() => {
   DEBUG && console.log('[APP] Admin Application ready, initializing...');
 
-  // O esquema regista-se sempre, e não só na instalação: repara um registo que
-  // outra aplicação tenha roubado, e serve quem corre isto a partir do código.
+  // Regista o esquema em todos os arranques: repara registos alterados e serve o desenvolvimento.
   autorizacaoPainel.registarEsquema();
 
-  // A aplicação estava fechada e foi aberta PELA ligação: aí ela vem no argv
-  // deste arranque, e não há segunda instância nenhuma para a apanhar.
+  // Com a app fechada, a ligação vem no argv do arranque.
   tratarLigacao(process.argv);
   
-  // Setup metrics
   metrics.setupMetrics();
   
-  // Clean old logs and cache
   errorHandler.cleanOldLogs();
   cache.cleanOldCache();
   
-  // Create main window
   mainWindow = window.createWindow();
   
-  // Setup CSP security headers
   security.setupCSP(mainWindow.webContents.session);
   
-  // Setup keyboard shortcuts
   shortcuts.setupKeyboardShortcuts(() => {
     cache.handleClearAll();
   });
   
-  // Create system tray
   appTray = tray.createTray(
     () => {
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -203,20 +165,16 @@ app.whenReady().then(() => {
     }
   );
   
-  // Monitor network status
   mainWindow.webContents.on('did-fail-load', () => {
     cache.setOnlineStatus(false);
   });
   
-  // Preload frequent pages after a short delay
   setTimeout(() => {
     cache.preloadFrequentPages();
   }, 5000);
   
-  // Start background sync
   cache.startBackgroundSync();
   
-  // Start hash refresh (valida integridade dos ficheiros a cada 5 minutos)
   cache.startHashRefresh();
   
   DEBUG && console.log('[APP] All admin features initialized');
@@ -224,8 +182,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  // On macOS, keep app running in background
-  // On Windows/Linux, keep running if tray is active
+  // Com o tray ativo, a app continua a correr sem janelas.
   if (process.platform !== 'darwin' && !appTray) {
     app.quit();
   }
@@ -238,23 +195,18 @@ app.on('activate', () => {
   }
 });
 
-// Cleanup on quit
 app.on('before-quit', () => {
   DEBUG && console.log('[APP] Admin Application quitting, cleaning up...');
   
-  // Stop all intervals
   cache.stopAllIntervals();
   
-  // Close odds scraper browser
   oddsScraper.closeBrowser();
   
-  // Unregister shortcuts
   shortcuts.unregisterShortcuts();
   
-  // Destroy tray
   tray.destroyTray();
   
   DEBUG && console.log('[APP] Cleanup complete');
 });
 
-} // End of single instance lock else block
+}

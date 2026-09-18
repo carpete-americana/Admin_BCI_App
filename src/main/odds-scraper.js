@@ -1,18 +1,13 @@
-// ════════════════════════════════════════════════════════════════
-//  Odds Scraper — local no Electron (puppeteer-core)
-//  Port do OddsScraperService.js da API para execução local
-// ════════════════════════════════════════════════════════════════
+// Scraper de odds local (puppeteer-core), versão local do OddsScraperService da API.
 const puppeteer = require('puppeteer-core');
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const { BrowserWindow } = require('electron');
 
-// ────── Config ──────
 const CACHE_TTL = 3 * 60 * 1000; // 3 minutos
-const BROWSER_IDLE_TIMEOUT = 5 * 60 * 1000; // 5 min sem uso → fecha browser
+const BROWSER_IDLE_TIMEOUT = 5 * 60 * 1000; // 5 min sem uso fecha o browser
 
-// ────── Cache simples (Map + TTL) ──────
 const cache = new Map();
 
 function cacheGet(key) {
@@ -30,11 +25,9 @@ function cacheClear() {
   cache.clear();
 }
 
-// ────── Helpers ──────
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const humanDelay = (min, max) => sleep(min + Math.random() * (max - min));
 
-// ────── Chrome path detection ──────
 function findChromePath() {
   const platform = os.platform();
   if (platform === 'win32') {
@@ -43,7 +36,7 @@ function findChromePath() {
       path.join(process.env['PROGRAMFILES(X86)'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
       path.join(process.env['LOCALAPPDATA'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
       path.join(process.env['LOCALAPPDATA'] || '', 'Chromium', 'Application', 'chrome.exe'),
-      // Edge as fallback
+      // Edge como alternativa
       path.join(process.env['PROGRAMFILES(X86)'] || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
       path.join(process.env['PROGRAMFILES'] || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
     ];
@@ -69,7 +62,6 @@ function findChromePath() {
   return null;
 }
 
-// ────── Browser Management ──────
 let browserInstance = null;
 let browserIdleTimer = null;
 
@@ -88,7 +80,6 @@ async function getBrowser() {
   resetBrowserIdle();
   if (browserInstance) {
     try {
-      // Check if still alive
       await browserInstance.version();
       return browserInstance;
     } catch {
@@ -128,7 +119,6 @@ async function getBrowser() {
   return browserInstance;
 }
 
-// ────── Progress tracking via IPC ──────
 let progressData = {
   status: 'idle',
   sites: {},
@@ -141,7 +131,6 @@ let progressData = {
 function sendProgress(data) {
   Object.assign(progressData, data);
 
-  // Calculate overall percent from per-site data
   const sites = Object.values(progressData.sites);
   if (sites.length > 0) {
     progressData.overallPercent = Math.round(
@@ -149,17 +138,14 @@ function sendProgress(data) {
     );
   }
 
-  // Calculate elapsed
   if (progressData.startedAt) {
     progressData.elapsed = Math.round((Date.now() - progressData.startedAt) / 1000);
-    // ETA estimate
     if (progressData.overallPercent > 5) {
       const rate = progressData.elapsed / progressData.overallPercent;
       progressData.eta = Math.round(rate * (100 - progressData.overallPercent));
     }
   }
 
-  // Send to all renderer windows
   for (const win of BrowserWindow.getAllWindows()) {
     try {
       win.webContents.send('odds:progress', { ...progressData });
@@ -175,7 +161,6 @@ function updateSiteProgress(site, update) {
   sendProgress({});
 }
 
-// ────── Site URLs ──────
 const SITE_URLS = {
   betano: {
     football: 'https://www.betano.pt/sport/futebol/',
@@ -210,15 +195,10 @@ const BOOKMAKERS = {
   bwin:    { name: 'Bwin',    color: '#f5c800' },
 };
 
-// ════════════════════════════════════════════
-//  Page Creation (3 stealth levels)
-// ════════════════════════════════════════════
-
-// Full stealth + request interception (Bwin, Betclic)
+// Stealth completo e interceção de pedidos (Bwin, Betclic)
 async function createPage(browser) {
   const page = await browser.newPage();
 
-  // Stealth: override navigator properties
   await page.evaluateOnNewDocument(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => false });
     Object.defineProperty(navigator, 'languages', { get: () => ['pt-PT', 'pt', 'en'] });
@@ -231,7 +211,6 @@ async function createPage(browser) {
         : origQuery(params);
   });
 
-  // UA & headers
   const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36';
   await page.setUserAgent(ua);
   await page.setExtraHTTPHeaders({
@@ -242,7 +221,7 @@ async function createPage(browser) {
     'Sec-CH-UA-Mobile': '?0',
   });
 
-  // Block heavy resources
+  // Bloqueia recursos pesados
   await page.setRequestInterception(true);
   page.on('request', (req) => {
     const rt = req.resourceType();
@@ -258,7 +237,7 @@ async function createPage(browser) {
   return page;
 }
 
-// Medium stealth — no interception (Placard)
+// Stealth médio, sem interceção (Placard)
 async function createCleanPage(browser) {
   const page = await browser.newPage();
 
@@ -275,7 +254,7 @@ async function createCleanPage(browser) {
   return page;
 }
 
-// Minimal stealth (Betano)
+// Stealth mínimo (Betano)
 async function createMinimalPage(browser) {
   const page = await browser.newPage();
 
@@ -287,7 +266,7 @@ async function createMinimalPage(browser) {
   await page.setUserAgent(ua);
   page.setDefaultTimeout(30000);
 
-  // Block images only
+  // Bloqueia só imagens
   await page.setRequestInterception(true);
   page.on('request', (req) => {
     if (['image', 'media', 'font'].includes(req.resourceType())) return req.abort();
@@ -297,13 +276,9 @@ async function createMinimalPage(browser) {
   return page;
 }
 
-// ════════════════════════════════════════════
-//  MAIN: getOdds
-// ════════════════════════════════════════════
 async function getOdds(sports = 'football', forceRefresh = false, sites = null, options = {}) {
-  // Normalize sports to array
   if (typeof sports === 'string') sports = [sports];
-  const crossOdds = options.crossOdds !== false; // default true
+  const crossOdds = options.crossOdds !== false; // true por omissão
   const activeSites = sites && sites.length > 0 ? sites : Object.keys(BOOKMAKERS);
   const cacheKey = `odds_${sports.sort().join('+')}_${activeSites.sort().join(',')}${crossOdds ? '' : '_raw'}`;
 
@@ -315,7 +290,6 @@ async function getOdds(sports = 'football', forceRefresh = false, sites = null, 
     }
   }
 
-  // Reset progress
   progressData = {
     status: 'starting',
     sites: {},
@@ -352,7 +326,6 @@ async function getOdds(sports = 'football', forceRefresh = false, sites = null, 
       const isLastSport = si === sports.length - 1;
       console.log(`[OddsScraper] Scraping ${sport} (${si + 1}/${sports.length})...`);
 
-      // Launch selected scrapers in parallel for this sport
       const results = await Promise.allSettled(
         activeSites.map(site => {
           const fn = scraperMap[site];
@@ -396,7 +369,6 @@ async function getOdds(sports = 'football', forceRefresh = false, sites = null, 
       allMatchedEvents.push(...matched);
     }
 
-    // Final sort
     allMatchedEvents.sort((a, b) => {
       if (b.bookmakerCount !== a.bookmakerCount) return b.bookmakerCount - a.bookmakerCount;
       return (a.startTime || '').localeCompare(b.startTime || '');
@@ -430,10 +402,7 @@ function getSports() {
   return ['football', 'tennis'];
 }
 
-// ════════════════════════════════════════════
-//  BETANO.PT
-// ════════════════════════════════════════════
-// ── Betano market tab data-qa selectors ──
+// Betano: seletores data-qa dos separadores de mercado
 const BETANO_MARKETS = [
   { qa: 'tab-matchresult',       name: 'matchresult' },
   { qa: 'tab-overunder',         name: 'overunder' },
@@ -448,7 +417,7 @@ async function scrapeBetano(browser, sport) {
   const sportSlug = sport === 'football' ? 'futebol' : 'tenis';
   updateSiteProgress('betano', { status: 'scraping', current: 'A recolher ligas...' });
 
-  // ── Phase 1: Collect league links from sidebar ──
+  // Fase 1: ligas da barra lateral
   const sidebarPage = await createMinimalPage(browser);
   let leagueLinks = [];
 
@@ -458,7 +427,6 @@ async function scrapeBetano(browser, sport) {
     try { await sidebarPage.mouse.click(10, 10); } catch {}
     await humanDelay(300, 600);
 
-    // Wait for sidebar sport-picker to render
     try { await sidebarPage.waitForSelector('.sport-picker__secondary__item__title', { timeout: 10000 }); } catch {
       console.warn('[OddsScraper] Betano: sidebar sport-picker not found, trying longer wait...');
       await humanDelay(3000, 5000);
@@ -467,7 +435,6 @@ async function scrapeBetano(browser, sport) {
     const allLeagueLinks = [];
     const seenHrefs = new Set();
 
-    // Collect top-level visible leagues
     const topLinks = await sidebarPage.evaluate((slug) => {
       const links = [];
       document.querySelectorAll('.sport-picker__secondary__item__title').forEach(a => {
@@ -480,7 +447,6 @@ async function scrapeBetano(browser, sport) {
     for (const l of topLinks) { if (!seenHrefs.has(l.href)) { seenHrefs.add(l.href); allLeagueLinks.push(l); } }
     console.log(`[OddsScraper] Betano: ${topLinks.length} top-level leagues`);
 
-    // Get sub-category names & expand each
     const subCatNames = await sidebarPage.evaluate(() => {
       const sportSection = document.querySelector('li.sport-picker--expanded');
       if (!sportSection) return [];
@@ -531,7 +497,7 @@ async function scrapeBetano(browser, sport) {
     await sidebarPage.close();
   }
 
-  // ── Phase 2: Scrape leagues in parallel (3 pages at a time) ──
+  // Fase 2: ligas em lotes paralelos
   const BATCH_SIZE = 5;
   const allEvents = [];
   const seenIds = new Set();
@@ -567,7 +533,6 @@ async function scrapeBetano(browser, sport) {
   return allEvents;
 }
 
-// ── Betano: scrape a single league page with all market tabs ──
 async function betanoScrapeLeague(browser, league) {
   const page = await createMinimalPage(browser);
   const fullUrl = `https://www.betano.pt${league.href}`;
@@ -576,11 +541,9 @@ async function betanoScrapeLeague(browser, league) {
     await page.goto(fullUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await humanDelay(800, 1400);
 
-    // Dismiss cookie overlay
     try { await page.mouse.click(10, 10); } catch {}
     await humanDelay(200, 300);
 
-    // Click "Ver todos" if present
     try {
       const hasVerTodos = await page.evaluate(() => {
         const btn = document.querySelector('[data-qa="button_view_all"]');
@@ -590,7 +553,6 @@ async function betanoScrapeLeague(browser, league) {
       if (hasVerTodos) await humanDelay(800, 1200);
     } catch {}
 
-    // ── Detect division tabs ──
     const tabCount = await page.evaluate(() => {
       return document.querySelectorAll('[data-qa^="league_tab_"]').length;
     });
@@ -599,14 +561,11 @@ async function betanoScrapeLeague(browser, league) {
     let allEvents = [];
 
     if (tabCount === 0) {
-      // No tabs: single division, scrape current page
       await betanoScrollAndParse(page);
       allEvents = await betanoParseAllMarkets(page, league.title, '');
     } else {
-      // Multiple tabs: click each and scrape
       for (let tabIdx = 0; tabIdx < tabCount; tabIdx++) {
         try {
-          // Click this tab
           const tabClicked = await page.evaluate((idx) => {
             const tabs = document.querySelectorAll('[data-qa^="league_tab_"]');
             if (tabs[idx]) {
@@ -619,7 +578,6 @@ async function betanoScrapeLeague(browser, league) {
           if (!tabClicked) continue;
           await humanDelay(600, 1000);
 
-          // Get tab name
           const tabName = await page.evaluate((idx) => {
             const tabs = document.querySelectorAll('[data-qa^="league_tab_"]');
             if (!tabs[idx]) return '';
@@ -629,10 +587,8 @@ async function betanoScrapeLeague(browser, league) {
 
           console.log(`[OddsScraper] Betano ${league.title}: scraping tab ${tabIdx + 1}/${tabCount} "${tabName}"`);
 
-          // Scroll to load events for this tab
           await betanoScrollAndParse(page);
 
-          // Parse all markets for this tab
           const tabEvents = await betanoParseAllMarkets(page, league.title, tabName);
           allEvents.push(...tabEvents);
         } catch (err) {
@@ -651,7 +607,6 @@ async function betanoScrapeLeague(browser, league) {
   }
 }
 
-// ── Betano helper: parse all markets for current division ──
 async function betanoParseAllMarkets(page, leagueTitle, divisionName) {
   const eventsMap = new Map();
 
@@ -684,7 +639,6 @@ async function betanoParseAllMarkets(page, leagueTitle, divisionName) {
   return Array.from(eventsMap.values()).filter(e => e.odds.home || e.odds.away);
 }
 
-// ── Betano helper: scroll to load all events ──
 async function betanoScrollAndParse(page) {
   let prevCount = 0;
   let stableRounds = 0;
@@ -699,7 +653,6 @@ async function betanoScrollAndParse(page) {
   await humanDelay(200, 300);
 }
 
-// ── Betano helper: parse events + odds for a specific market tab ──
 async function betanoParseMarket(page, marketName) {
   return page.evaluate((market) => {
     const results = [];
@@ -724,7 +677,6 @@ async function betanoParseMarket(page, marketName) {
         });
         if (!timeStr) return;
 
-        // Parse all selections from this card
         const selections = card.querySelectorAll('[data-qa="event-selection"]');
         const rawOdds = [];
         selections.forEach(sel => {
@@ -741,7 +693,6 @@ async function betanoParseMarket(page, marketName) {
           }
         });
 
-        // Map odds based on market
         const odds = {};
         for (const o of rawOdds) {
           if (!(o.value > 1 && o.value < 1000)) continue;
@@ -778,9 +729,7 @@ async function betanoParseMarket(page, marketName) {
   }, marketName);
 }
 
-// ════════════════════════════════════════════
-//  BWIN.PT
-// ════════════════════════════════════════════
+// Bwin
 async function scrapeBwin(browser, sport) {
   const urls = SITE_URLS.bwin[sport];
   if (!urls || !urls.length) return [];
@@ -801,7 +750,6 @@ async function scrapeBwin(browser, sport) {
       await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
       await humanDelay(500, 1000);
 
-      // Accept cookies once
       if (!cookiesHandled) {
         try {
           const btn = await page.$('#onetrust-accept-btn-handler');
@@ -812,7 +760,6 @@ async function scrapeBwin(browser, sport) {
       await page.waitForSelector('.grid-event-wrapper, [class*="grid-event"]', { timeout: 15000 }).catch(() => {});
       await humanDelay(500, 800);
 
-      // Scroll pattern
       const viewport = page.viewport() || { width: 1280, height: 800 };
       await page.mouse.move(viewport.width / 2, viewport.height / 2);
       await page.mouse.click(viewport.width / 2, viewport.height / 2);
@@ -822,7 +769,7 @@ async function scrapeBwin(browser, sport) {
       for (let s = 0; s < 15; s++) {
         await page.keyboard.press('End');
         await humanDelay(800, 1200);
-        // Scroll back up via JS (avoids Input.dispatchMouseEvent protocolTimeout)
+        // Sobe por JS (evita o protocolTimeout do Input.dispatchMouseEvent)
         await page.evaluate(() => window.scrollBy(0, -300));
         await humanDelay(500, 800);
         await page.evaluate(() => window.scrollBy(0, -200));
@@ -895,9 +842,7 @@ async function scrapeBwin(browser, sport) {
   }
 }
 
-// ════════════════════════════════════════════
-//  BETCLIC.PT
-// ════════════════════════════════════════════
+// Betclic
 async function scrapeBetclic(browser, sport) {
   const url = SITE_URLS.betclic[sport];
   if (!url) return [];
@@ -908,7 +853,6 @@ async function scrapeBetclic(browser, sport) {
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
     await humanDelay(500, 1000);
 
-    // Accept cookies
     try {
       const btn = await page.$('#popin_tc_privacy_button_2, [id*="cookie-accept"], #onetrust-accept-btn-handler');
       if (btn) { await btn.click(); await humanDelay(300, 500); }
@@ -917,7 +861,6 @@ async function scrapeBetclic(browser, sport) {
     await page.waitForSelector('.cardEvent', { timeout: 15000 }).catch(() => {});
     await humanDelay(500, 800);
 
-    // Scroll to load all lazy events
     let prevCount = 0;
     for (let s = 0; s < 20; s++) {
       await page.keyboard.press('End');
@@ -975,7 +918,6 @@ async function scrapeBetclic(browser, sport) {
       return results;
     }, sport);
 
-    // Dedup
     const seen = new Set();
     const events = [];
     for (const ev of rawEvents) {
@@ -992,9 +934,7 @@ async function scrapeBetclic(browser, sport) {
   }
 }
 
-// ════════════════════════════════════════════
-//  PLACARD.PT
-// ════════════════════════════════════════════
+// Placard
 async function scrapePlacard(browser, sport) {
   const url = SITE_URLS.placard[sport];
   if (!url) return [];
@@ -1002,7 +942,6 @@ async function scrapePlacard(browser, sport) {
 
   const PARALLEL_TABS = 3;
 
-  // ── Shared helpers ──
   const dismissCookies = async (p) => {
     try {
       await p.evaluate(() => {
@@ -1054,7 +993,7 @@ async function scrapePlacard(browser, sport) {
   const expandAndScrape = async (p, sportType, compName) => {
     await p.waitForSelector('.ta-EventListItem, .ta-GroupHeader', { timeout: 10000 }).catch(() => {});
     await humanDelay(400, 700);
-    // Fast expand: use evaluate to click + count in one call per header
+    // Expande com um evaluate por cabeçalho (clique e contagem)
     const headerCount = await p.evaluate(() => document.querySelectorAll('.ta-GroupHeader').length);
     for (let i = 0; i < headerCount; i++) {
       try {
@@ -1062,7 +1001,7 @@ async function scrapePlacard(browser, sport) {
           const before = document.querySelectorAll('.ta-EventListItem').length;
           const h = document.querySelectorAll('.ta-GroupHeader')[idx];
           if (h) { h.scrollIntoView({ block: 'center' }); h.click(); }
-          return before; // we'll check after
+          return before;
         }, i);
         await humanDelay(180, 300);
         const countAfter = await p.evaluate(() => document.querySelectorAll('.ta-EventListItem').length);
@@ -1072,7 +1011,6 @@ async function scrapePlacard(browser, sport) {
         }
       } catch {}
     }
-    // Quick scroll for lazy loading
     for (let s = 0; s < 4; s++) {
       await p.evaluate((y) => window.scrollBy(0, y), 1200);
       await humanDelay(80, 150);
@@ -1094,7 +1032,6 @@ async function scrapePlacard(browser, sport) {
 
   const listPage = await createCleanPage(browser);
   try {
-    // ───── Step 1: Get competition list ─────
     await listPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await humanDelay(1200, 2000);
     await dismissCookies(listPage);
@@ -1115,7 +1052,6 @@ async function scrapePlacard(browser, sport) {
     if (competitionLinks.length === 0) return [];
     updateSiteProgress('placard', { total: competitionLinks.length, current: `0/${competitionLinks.length} competições` });
 
-    // ───── Step 2: Scrape in parallel batches ─────
     const allEvents = [];
     const dedup = new Set();
     let done = 0;
@@ -1145,9 +1081,7 @@ async function scrapePlacard(browser, sport) {
   }
 }
 
-// ════════════════════════════════════════════
-//  EVENT MATCHING
-// ════════════════════════════════════════════
+// Correspondência de eventos entre casas
 function normalizeTeamName(name) {
   return (name || '')
     .toLowerCase()
@@ -1204,7 +1138,7 @@ function checkArbitrage(bestOdds, sport) {
 }
 
 function matchEvents(siteData, sport, crossOdds = true) {
-  // Raw mode: don't match/cross events across bookmakers
+  // Modo simples: não cruza eventos entre casas
   if (!crossOdds) {
     const rawEvents = [];
     Object.entries(siteData).forEach(([site, events]) => {
@@ -1228,7 +1162,7 @@ function matchEvents(siteData, sport, crossOdds = true) {
     return rawEvents;
   }
 
-  // Cross mode: match events across bookmakers
+  // Cruza eventos entre casas
   const eventMap = new Map();
 
   Object.entries(siteData).forEach(([site, events]) => {
@@ -1278,7 +1212,6 @@ function matchEvents(siteData, sport, crossOdds = true) {
   return allEvents;
 }
 
-// ────── Cleanup ──────
 async function closeBrowser() {
   if (browserIdleTimer) clearTimeout(browserIdleTimer);
   if (browserInstance) {
@@ -1288,7 +1221,6 @@ async function closeBrowser() {
   }
 }
 
-// ────── Exports ──────
 module.exports = {
   getOdds,
   getSports,

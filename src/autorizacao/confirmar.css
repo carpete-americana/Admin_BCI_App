@@ -1,5 +1,4 @@
-/* As cores são as do painel de admin (Admin Frontend API/assets/css/styles.css).
-   Copiadas e não importadas: esta página vem do disco e não fala com a rede. */
+/* Cores do painel, copiadas: esta página vem do disco e não carrega nada da rede. */
 :root {
   color-scheme: dark;
   --primary: #6366f1;
@@ -19,8 +18,7 @@
 
 * { box-sizing: border-box; }
 
-/* O atributo hidden perde para qualquer display escrito aqui: o "Abre em"
-   (inline-flex) aparecia vazio na janela de erro, com hidden posto. */
+/* hidden perde para um display escrito no CSS. */
 [hidden] { display: none !important; }
 
 html, body {
@@ -68,9 +66,7 @@ html, body {
   background: var(--primary);
 }
 
-/* O corpo encolhe e ganha scroll; os botões nunca. Sem min-height: 0, um filho
-   de flex não encolhe abaixo do seu conteúdo e empurra o rodapé para fora da
-   janela — era isso que colava os botões ao fundo. */
+/* min-height: 0 deixa o corpo encolher e ganhar scroll, para os botões ficarem sempre à vista. */
 .corpo {
   flex: 1;
   min-height: 0;
@@ -159,8 +155,7 @@ h1 {
 }
 .btn-autorizar:hover:not(:disabled) { background: var(--primary-dark); }
 
-/* Desativado durante um instante depois de a janela ganhar foco — ver
-   confirmar.js. Visível, para não parecer avariado. */
+/* Desativado um instante depois de a janela ganhar foco (ver confirmar.js). */
 .btn-autorizar:disabled { opacity: 0.45; cursor: default; }
 
 .cartao:not([data-tipo="confirmar"]) .btn-autorizar { display: none; }

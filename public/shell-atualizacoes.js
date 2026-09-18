@@ -1,10 +1,6 @@
-// Extraído de index.html: estava num bloco <script> inline,
-// que obriga o CSP a manter script-src 'unsafe-inline'.
-
 
 let DEBUG = false;
 
-// Load DEBUG mode from main process
 (async () => {
   try {
     DEBUG = await window.electronAPI.getDebugMode();
@@ -13,7 +9,6 @@ let DEBUG = false;
   }
 })();
 
-// Mostrar o badge com animação quando houver atualização
 window.electronAPI.onUpdateAvailable((data) => {
   DEBUG && console.log('[ADMIN-UPDATE] Update available:', data);
   const badge = document.getElementById('update-badge');
@@ -24,20 +19,15 @@ window.electronAPI.onUpdateAvailable((data) => {
   }, 100);
 });
 
-// Baixar quando clicar
 document.getElementById('download-update')?.addEventListener('click', () => {
   DEBUG && console.log('[ADMIN-UPDATE] Starting download');
-  // Mostrar o container de progresso
   document.getElementById('download-progress-container').style.display = 'block';
   
-  // Esconder o botão de download enquanto baixa
   document.getElementById('download-update').style.display = 'none';
   
-  // Iniciar o download
   window.electronAPI.downloadUpdate();
 });
 
-// Monitorar progresso
 window.electronAPI.onDownloadProgress((progress) => {
   const percent = Math.round(progress.percent);
   DEBUG && console.log('[ADMIN-UPDATE] Download progress:', percent + '%');
@@ -47,10 +37,8 @@ window.electronAPI.onDownloadProgress((progress) => {
   if (text) text.innerText = `${percent}%`;
 });
 
-// Armazenar info do update para usar depois
 let currentUpdateInfo = null;
 
-// Quando o download estiver completo
 window.electronAPI.onUpdateDownloaded((info) => {
   DEBUG && console.log('[ADMIN-UPDATE] Update downloaded:', info);
   currentUpdateInfo = info;
@@ -71,7 +59,6 @@ window.electronAPI.onUpdateDownloaded((info) => {
   }, 1000);
 });
 
-// Tratar erros de update
 window.electronAPI.onUpdateError((error) => {
   DEBUG && console.error('[ADMIN-UPDATE] Error:', error);
   const infoText = document.getElementById('progress-info-text');
@@ -80,7 +67,6 @@ window.electronAPI.onUpdateError((error) => {
   if (container) container.style.display = 'block';
 });
 
-// Mostrar a versão da app discretamente no canto da sidebar
 (async () => {
   try {
     const version = await window.electronAPI.getVersion();
@@ -91,19 +77,17 @@ window.electronAPI.onUpdateError((error) => {
   }
 })();
 
-// Reiniciar aplicação quando clicar
 document.getElementById('restart-button')?.addEventListener('click', () => {
   const btn = document.getElementById('restart-button');
   btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
   DEBUG && console.log('[ADMIN-UPDATE] Installing update and restarting');
   
-  // Chamar método correto para instalar e atualizar com o caminho do instalador
   setTimeout(() => {
     if (currentUpdateInfo && currentUpdateInfo.installerPath) {
       window.electronAPI.installAndUpdate(currentUpdateInfo.installerPath);
     } else {
       console.error('[ADMIN-UPDATE] Installer path not available');
-      window.electronAPI.installAndUpdate(); // Fallback sem path
+      window.electronAPI.installAndUpdate();
     }
   }, 1500);
 });
