@@ -23,19 +23,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     InstallAndUpdate: (installerPath) => ipcRenderer.send('install-and-update', installerPath),
     installAndUpdate: (installerPath) => ipcRenderer.send('install-and-update', installerPath),
 
-    // Scraper de odds local
-    getOdds: (sports, sites, options) => ipcRenderer.invoke('odds:get', sports, sites, options),
-    refreshOdds: (sports, sites, options) => ipcRenderer.invoke('odds:refresh', sports, sites, options),
-    getOddsSports: () => ipcRenderer.invoke('odds:sports'),
-    clearOddsCache: () => ipcRenderer.invoke('odds:clearCache'),
-    getOddsProgress: () => ipcRenderer.invoke('odds:progress'),
-    onOddsProgress: (cb) => {
-      ipcRenderer.on('odds:progress', (e, data) => cb && cb(data));
-    },
-    removeOddsProgressListener: () => {
-      ipcRenderer.removeAllListeners('odds:progress');
-    },
-
     // Navegação pedida pelo menu do tray.
     onNavigateTo: (cb) => {
       ipcRenderer.on('navigate-to', (e, route) => cb && cb(route));

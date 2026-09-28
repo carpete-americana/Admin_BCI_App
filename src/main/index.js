@@ -11,7 +11,6 @@ const tray = require('./tray');
 const security = require('./security');
 const metrics = require('./metrics');
 const assets = require('./assets');
-const oddsScraper = require('./odds-scraper');
 
 ipcMain.handle('github-cache:fetch', cache.handleFetch);
 ipcMain.handle('github-cache:fetchAsset', cache.handleFetchAsset);
@@ -52,12 +51,6 @@ ipcMain.handle('cache:clearBrowser', async (e) => {
 ipcMain.handle('storage:set', (e, k, v) => ElectronStorage.setItem(k, v));
 ipcMain.handle('storage:get', (e, k) => ElectronStorage.getItem(k));
 ipcMain.handle('storage:remove', (e, k) => ElectronStorage.removeItem(k));
-
-ipcMain.handle('odds:get', (e, sports, sites, options) => oddsScraper.getOdds(sports, false, sites, options));
-ipcMain.handle('odds:refresh', (e, sports, sites, options) => oddsScraper.getOdds(sports, true, sites, options));
-ipcMain.handle('odds:sports', () => oddsScraper.getSports());
-ipcMain.handle('odds:clearCache', () => oddsScraper.clearCache());
-ipcMain.handle('odds:progress', () => oddsScraper.getProgress());
 
 ipcMain.handle('app:checkServerStatus', async () => {
   try {
@@ -199,9 +192,7 @@ app.on('before-quit', () => {
   DEBUG && console.log('[APP] Admin Application quitting, cleaning up...');
   
   cache.stopAllIntervals();
-  
-  oddsScraper.closeBrowser();
-  
+
   shortcuts.unregisterShortcuts();
   
   tray.destroyTray();

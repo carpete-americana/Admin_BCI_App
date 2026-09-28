@@ -77,7 +77,6 @@ function createWindow() {
       preload: path.join(__dirname, '../preload/index.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      enableRemoteModule: true,
       webSecurity: true,
       plugins: true
     },
@@ -243,7 +242,6 @@ function createDetachedWindow(route, title) {
       preload: path.join(__dirname, '../preload/index.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      enableRemoteModule: true,
       webSecurity: true,
       plugins: true
     },
