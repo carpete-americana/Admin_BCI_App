@@ -7,6 +7,16 @@ let DEBUG = false;
 let routes = {};
 export let currentPage = null;
 
+// A intro (public/intro.js) sai por cima da página; sem ela, o carregador sai de uma vez.
+async function revelarPagina() {
+  if (window.bciIntro) {
+    await window.bciIntro.terminar();
+  } else {
+    document.getElementById('initial-loader')?.remove();
+  }
+  document.body.classList.add('ready');
+}
+
 window.addEventListener('error', (event) => {
   console.error('[GLOBAL ERROR]', event.message, event.filename, event.lineno);
 });
@@ -310,16 +320,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         await injectCSSFromRoute('login');
         
-        document.body.innerHTML = html;
+        // Tira o resto do body sem mexer na intro: tirá-la do DOM recomeçava a animação.
+        const intro = document.getElementById('initial-loader');
+        if (intro) {
+          [...document.body.childNodes].forEach(n => { if (n !== intro) n.remove(); });
+          intro.insertAdjacentHTML('beforebegin', html);
+        } else {
+          document.body.innerHTML = html;
+        }
         document.title = 'Login | BCi Admin';
         
         await executePageScript('login');
         
         await hideLoading();
-        
-        requestAnimationFrame(() => {
-          document.body.classList.add('ready');
-        });
+        await revelarPagina();
 
         setTimeout(() => {
           window.electronAPI.rendererReady && window.electronAPI.rendererReady();
@@ -329,7 +343,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         await hideLoading();
         showErrorPage(err, 'login');
         document.body.style.opacity = '1';
-        document.body.classList.add('ready');
+        revelarPagina();
         window.electronAPI.rendererReady && window.electronAPI.rendererReady();
       }
       return;
@@ -341,7 +355,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     routes = window.adminRoutes || {};
     if (window.generateSidebarMenu) window.generateSidebarMenu();
     
-    document.body.style.opacity = '0';
+    // Com a intro o body fica visível: ela é filha dele e sumia também.
+    if (!window.bciIntro) document.body.style.opacity = '0';
     
     const initialRoute = window.location.hash.substring(1) || 'dashboard';
 
@@ -363,11 +378,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     await Utils.notification();
     
     await hideLoading();
-    
-    requestAnimationFrame(() => {
-      document.body.style.opacity = '1';
-      document.body.classList.add('ready');
-    });
+    document.body.style.opacity = '1';
+    await revelarPagina();
 
     if (window.electronAPI && typeof window.electronAPI.rendererReady === 'function') {
       setTimeout(() => {
@@ -385,7 +397,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     showErrorPage(err, 'dashboard');
     // Garante o corpo visível no ecrã de erro (a opacidade pode estar a 0).
     document.body.style.opacity = '1';
-    document.body.classList.add('ready');
+    revelarPagina();
     if (window.electronAPI && typeof window.electronAPI.rendererReady === 'function') {
       window.electronAPI.rendererReady();
     }
