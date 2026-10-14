@@ -108,6 +108,8 @@ function createWindow() {
     }
   });
 
+  // O primeiro paint já é a intro (public/intro.js), que tapa a página até ela estar pronta.
+  win.once('ready-to-show', showSafely);
   ipcMain.once('renderer:ready', () => {
     showSafely();
   });
@@ -181,22 +183,8 @@ function handleLogout(event) {
   DEBUG && console.log('[LOGOUT] Clearing session and returning to login');
   ElectronStorage.removeItem('admin-token');
   const win = BrowserWindow.getFocusedWindow();
-  if (win) {
-    win.hide();
-    win.loadFile(path.join(__dirname, '../../public/index.html'));
-    let shown = false;
-    const showSafely = () => {
-      if (shown) return;
-      shown = true;
-      if (!win.isDestroyed()) win.show();
-    };
-    const fallbackTimer = setTimeout(showSafely, 3000);
-    ipcMain.once('renderer:ready', () => {
-      clearTimeout(fallbackTimer);
-      showSafely();
-    });
-    win.webContents.once('did-fail-load', showSafely);
-  }
+  // Sem esconder a janela: a intro tapa o login até estar pronto.
+  if (win) win.loadFile(path.join(__dirname, '../../public/index.html'));
   return true;
 }
 
