@@ -5,6 +5,7 @@ const log = require('electron-log');
 const fs = require('fs');
 const path = require('path');
 const { app } = require('electron');
+const { motivoParaRecusar, descarregar, confirmarInstalador } = require('./verificacaoAtualizacao');
 
 autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = false;
@@ -19,6 +20,14 @@ let updateInfo = null;
 let downloadInProgress = false;
 // Caminho do instalador descarregado por este processo: é o único que se executa.
 let caminhoInstaladorDescarregado = null;
+// SHA-256 publicado na release; volta a verificar-se mesmo antes de executar.
+let sha256Esperado = null;
+
+function enviarATodas(canal, dados) {
+  BrowserWindow.getAllWindows().forEach(win => {
+    if (!win.isDestroyed()) win.webContents.send(canal, dados);
+  });
+}
 
 /** Verifica atualizações através do backend. */
 async function checkForUpdatesViaBackend() {
@@ -109,210 +118,95 @@ function setupUpdateHandlers() {
       return;
     }
 
+    const recusa = motivoParaRecusar(winAsset);
+    if (recusa) {
+      log.warn('[UPDATER] Atualização recusada:', recusa);
+      enviarATodas('update-error', { message: recusa });
+      return;
+    }
+
     downloadInProgress = true;
 
     try {
-      const tempDir = path.join(app.getPath('temp'), 'bci-admin-update');
-      if (!fs.existsSync(tempDir)) {
-        fs.mkdirSync(tempDir, { recursive: true });
-      }
+      const tempDir = path.join(app.getPath('temp'), 'bci-update');
+      fs.mkdirSync(tempDir, { recursive: true });
 
       const installerPath = path.join(tempDir, winAsset.name);
-      caminhoInstaladorDescarregado = installerPath;
-      
+      caminhoInstaladorDescarregado = null;
+      sha256Esperado = null;
+
       if (DEBUG) {
         console.log('[UPDATER] Iniciando download:', winAsset.downloadUrl);
         console.log('[UPDATER] Para:', installerPath);
       }
 
-      const response = await fetch(winAsset.downloadUrl);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const totalSize = parseInt(response.headers.get('content-length'), 10);
-      let downloaded = 0;
-
-      const fileStream = fs.createWriteStream(installerPath);
-      
-      try {
-        const reader = response.body.getReader();
-        
-        while (true) {
-          const { done, value } = await reader.read();
-          
-          if (done) break;
-          
-          downloaded += value.length;
-          const percent = Math.round((downloaded / totalSize) * 100);
-          
-          fileStream.write(Buffer.from(value));
-          
-          if (DEBUG && percent % 10 === 0) {
-            console.log(`[UPDATER] Download: ${percent}%`);
-          }
-
-          const wins = BrowserWindow.getAllWindows();
-          wins.forEach(win => {
-            if (!win.isDestroyed()) {
-              win.webContents.send('download-progress', {
-                percent: percent,
-                transferred: downloaded,
-                total: totalSize
-              });
-            }
-          });
-        }
-        
-        fileStream.end();
-        
-        await new Promise((resolve, reject) => {
-          fileStream.on('finish', resolve);
-          fileStream.on('error', reject);
-        });
-        
-      } catch (streamErr) {
-        // Alternativa sem stream: descarrega tudo e simula o progresso.
-        const buffer = await response.arrayBuffer();
-        const chunkSize = 1024 * 1024;
-        const totalBuffer = Buffer.from(buffer);
-        const chunkCount = Math.ceil(totalBuffer.length / chunkSize);
-        
-        fs.writeFileSync(installerPath, totalBuffer);
-        
-        for (let i = 0; i <= chunkCount; i++) {
-          const percent = Math.round((i / chunkCount) * 100);
-          
-          if (DEBUG && percent % 10 === 0) {
-            console.log(`[UPDATER] Download (simulated): ${percent}%`);
-          }
-
-          const wins = BrowserWindow.getAllWindows();
-          wins.forEach(win => {
-            if (!win.isDestroyed()) {
-              win.webContents.send('download-progress', {
-                percent: Math.min(100, percent),
-                transferred: Math.min(i * chunkSize, totalBuffer.length),
-                total: totalBuffer.length
-              });
-            }
-          });
-          
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
-      }
-
-      if (DEBUG) {
-        console.log('');
-        console.log('╔════════════════════════════════════════╗');
-        console.log('║      ✅ DOWNLOAD COMPLETO!             ║');
-        console.log('╚════════════════════════════════════════╝');
-        console.log('[UPDATER] Arquivo baixado:', installerPath);
-      }
-
-      const wins = BrowserWindow.getAllWindows();
-      wins.forEach(win => {
-        if (!win.isDestroyed()) {
-          win.webContents.send('update-downloaded', {
-            version: updateInfo.version,
-            installerPath: installerPath
-          });
-        }
+      const { sha256 } = await descarregar(winAsset.downloadUrl, installerPath, {
+        aoProgresso: (p) => enviarATodas('download-progress', p)
       });
+      if (sha256 !== winAsset.sha256.toLowerCase()) {
+        fs.rmSync(installerPath, { force: true });
+        throw new Error('o ficheiro descarregado não corresponde ao publicado');
+      }
+      caminhoInstaladorDescarregado = installerPath;
+      sha256Esperado = sha256;
+      log.info('[UPDATER] Instalador descarregado e verificado:', installerPath);
 
+      enviarATodas('update-downloaded', { version: updateInfo.version, installerPath });
       downloadInProgress = false;
 
     } catch (err) {
       downloadInProgress = false;
       if (DEBUG) console.error('[UPDATER] Download failed:', err.message);
       log.error('[UPDATER] Download error:', err);
-      
-      const wins = BrowserWindow.getAllWindows();
-      wins.forEach(win => {
-        if (!win.isDestroyed()) {
-          win.webContents.send('update-error', { message: 'Erro ao fazer download: ' + err.message });
-        }
-      });
+      enviarATodas('update-error', { message: 'Erro ao fazer download: ' + err.message });
     }
   });
 
-  ipcMain.on('install-and-update', (event) => {
+  ipcMain.on('install-and-update', async (event) => {
     // O caminho vindo do renderer é ignorado: só se executa o instalador descarregado nesta sessão.
     const installerPath = caminhoInstaladorDescarregado;
-    if (DEBUG) console.log('[UPDATER] Installing update and restarting app');
     if (DEBUG) console.log('[UPDATER] Installer:', installerPath);
-    
+
     try {
-      if (!installerPath || !fs.existsSync(installerPath)) {
-        if (DEBUG) console.error('[UPDATER] Sem instalador descarregado nesta sessão:', installerPath);
+      if (!installerPath || !sha256Esperado || !fs.existsSync(installerPath)) {
         event.reply('update-error', { message: 'Arquivo de instalação não encontrado' });
         return;
       }
 
-      const { execFile } = require('child_process');
-      
+      const appDataPath = app.getPath('appData');
+      const bciPath = path.join(appDataPath, 'bci-admin-installers');
+      fs.mkdirSync(bciPath, { recursive: true });
+      const finalInstallerPath = path.join(bciPath, path.basename(installerPath));
+      fs.copyFileSync(installerPath, finalInstallerPath);
+      // Verifica a cópia que vai correr, antes de fechar as janelas.
+      await confirmarInstalador(finalInstallerPath, sha256Esperado);
+      log.info('[UPDATER] Executando instalador verificado:', finalInstallerPath);
+
       BrowserWindow.getAllWindows().forEach(win => {
-        if (!win.isDestroyed()) {
-          win.destroy();
-        }
+        if (!win.isDestroyed()) win.destroy();
       });
 
-      // Espera 5 s para o processo libertar os ficheiros antes de instalar.
-      if (DEBUG) console.log('[UPDATER] Agendando execução do instalador em 5s...');
-      log.info('[UPDATER] Agendando execução do instalador:', installerPath);
-      
-      try {
-        if (DEBUG) console.log('[UPDATER] Executando instalador agora...');
-        log.info('[UPDATER] Executando instalador:', installerPath);
-        
-        const appDataPath = app.getPath('appData');
-        const bciPath = path.join(appDataPath, 'bci-admin-installers');
-        if (!fs.existsSync(bciPath)) {
-          fs.mkdirSync(bciPath, { recursive: true });
-        }
-        
-        const fileName = path.basename(installerPath);
-        const finalInstallerPath = path.join(bciPath, fileName);
-        
-        try {
-          fs.copyFileSync(installerPath, finalInstallerPath);
-          log.info('[UPDATER] Arquivo copiado para:', finalInstallerPath);
-        } catch (copyErr) {
-          log.warn('[UPDATER] Não foi possível copiar:', copyErr.message);
-        }
-        
-        // Script VBS para correr o instalador sem janela de consola.
-        const vbsPath = path.join(bciPath, 'run-installer.vbs');
-        const installDir = path.join(appDataPath, '..', 'Local', 'Programs', 'BCI Admin');
-        const appExePath = path.join(installDir, 'BCI Admin.exe');
-        const vbsContent = `Set objShell = CreateObject("WScript.Shell")
+      // Script VBS para correr o instalador sem janela de consola.
+      const vbsPath = path.join(bciPath, 'run-installer.vbs');
+      const installDir = path.join(appDataPath, '..', 'Local', 'Programs', 'BCI Admin');
+      const appExePath = path.join(installDir, 'BCI Admin.exe');
+      const vbsContent = `Set objShell = CreateObject("WScript.Shell")
 objShell.Run "${finalInstallerPath}" & " /S /D=" & "${installDir}", 0, True
 WScript.Sleep 2000
 objShell.Run "${appExePath}", 0, False`;
-        
-        fs.writeFileSync(vbsPath, vbsContent);
-        log.info('[UPDATER] Script VBS criado:', vbsPath);
-        log.info('[UPDATER] Instalador silencioso em:', installDir);
-        log.info('[UPDATER] App será relançada em:', appExePath);
-        
-        const { exec } = require('child_process');
-        exec(`cscript.exe "${vbsPath}"`, { windowsHide: true }, (err) => {
-          if (err) {
-            log.error('[UPDATER] Erro ao executar VBS:', err.message);
-          }
-        });
 
-        setTimeout(() => {
-          if (DEBUG) console.log('[UPDATER] Saindo da app...');
-          log.info('[UPDATER] App quit...');
-          app.quit();
-        }, 500);
+      fs.writeFileSync(vbsPath, vbsContent);
+      log.info('[UPDATER] Instalador silencioso em:', installDir);
 
-      } catch (innerErr) {
-        if (DEBUG) console.error('[UPDATER] Erro ao executar instalador:', innerErr);
-        log.error('[UPDATER] Erro ao executar instalador:', innerErr);
-        event.reply('update-error', { message: 'Erro ao iniciar instalador: ' + innerErr.message });
-      }
+      const { exec } = require('child_process');
+      exec(`cscript.exe "${vbsPath}"`, { windowsHide: true }, (err) => {
+        if (err) log.error('[UPDATER] Erro ao executar VBS:', err.message);
+      });
+
+      setTimeout(() => {
+        log.info('[UPDATER] App quit...');
+        app.quit();
+      }, 500);
 
     } catch (e) {
       if (DEBUG) console.error('[UPDATER] Install error:', e);
