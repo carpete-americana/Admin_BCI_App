@@ -14,7 +14,7 @@ const { VERSAO_TEXTO } = require('../src/main/dispositivo-texto');
 
 const token = (id) => `x.${Buffer.from(JSON.stringify({ id })).toString('base64url')}.y`;
 
-function cenario({ resposta = 0, ativo = true, rotas = {} } = {}) {
+function cenario({ resposta = 0, ativo = true, rotas = {}, extra = {} } = {}) {
   const chamadas = [];
   const guardado = new Map();
   const arranque = [];
@@ -24,7 +24,7 @@ function cenario({ resposta = 0, ativo = true, rotas = {} } = {}) {
   const responder = async (metodo, caminho, corpo) => {
     chamadas.push({ metodo, caminho, corpo });
     const chave = `${metodo} ${caminho.replace(/[0-9a-f]{8}-[0-9a-f-]{27}/, ':id')}`;
-    if (rotas[chave]) return rotas[chave];
+    if (rotas[chave]) return typeof rotas[chave] === 'function' ? rotas[chave](corpo) : rotas[chave];
     if (chave === 'GET /users/me/devices/config') return { status: 200, corpo: { result: { data: { ativo, versaoConsentimento: VERSAO_TEXTO } } } };
     if (chave === 'POST /users/me/devices') return { status: 200, corpo: {} };
     if (chave === 'POST /users/me/devices/:id/sinal') return { status: 200, corpo: { result: { data: { consentimentoValido: true } } } };
@@ -42,7 +42,8 @@ function cenario({ resposta = 0, ativo = true, rotas = {} } = {}) {
     versoes: { so: 'win32 10.0', electron: '44.4.5' },
     randomUUID: () => crypto.randomUUID(),
     setIntervalFn: (fn, ms) => { tique = { fn, ms }; return 1; },
-    clearIntervalFn: () => { tique = null; }
+    clearIntervalFn: () => { tique = null; },
+    ...extra
   });
   return { d, chamadas, guardado, arranque, tray, tique: () => tique, sairDaSessao: () => { sessao = null; } };
 }
@@ -159,4 +160,121 @@ test('a revogação fica pendente sempre que o servidor não a confirmou', async
     await c.d.revogar();
     assert.equal(c.guardado.get('dispositivo:3').revogarPendente, pendente, String(estado));
   }
+});
+
+// Fase 2: tarefas na resposta do sinal.
+
+const comTarefa = (tarefa) => ({ 'POST /users/me/devices/:id/sinal': { status: 200, corpo: { result: { data: { consentimentoValido: true, tarefa } } } } });
+const tarefaSimulada = (extra = {}) => ({ tarefaId: 31, tipo: 'levantar', simulada: true, parametros: { simular: 'ok' }, contaRotulo: 'Placard · conta 5', leaseAte: '2026-10-19T12:10:00Z', ...extra });
+
+function rotasTarefa(tarefa, registo) {
+  return {
+    ...comTarefa(tarefa),
+    'POST /users/me/devices/:id/tarefas/31/iniciar': () => { registo.push('iniciar'); return { status: 200, corpo: {} }; },
+    'POST /users/me/devices/:id/tarefas/31/concluir': (corpo) => { registo.push(['concluir', corpo]); return { status: 200, corpo: {} }; }
+  };
+}
+
+const semEspera = { esperar: async () => {}, aleatorio: () => 0, registar: () => {} };
+
+test('o registo e o sinal declaram a capacidade tarefas-v1', async () => {
+  const c = cenario({ extra: semEspera });
+  await c.d.aceitar();
+  assert.deepEqual(c.chamadas.filter(x => x.metodo === 'POST')[0].corpo.capacidades, ['tarefas-v1']);
+  c.d.iniciar();
+  await c.tique().fn();
+  assert.deepEqual(c.chamadas.filter(x => x.metodo === 'POST').filter(p => /sinal$/.test(p.caminho)).at(-1).corpo.capacidades, ['tarefas-v1']);
+});
+
+test('tarefa simulada no sinal: inicia e conclui pelas rotas da tarefa', async () => {
+  const registo = [];
+  const c = cenario({ rotas: rotasTarefa(tarefaSimulada(), registo), extra: semEspera });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  assert.deepEqual(registo, ['iniciar', ['concluir', { estado: 'feita', resultado: { simulado: true, motivo: 'Simulação' } }]]);
+  const id = c.guardado.get('dispositivo:3').deviceId;
+  assert.ok(c.chamadas.some(x => x.caminho === `/users/me/devices/${id}/tarefas/31/iniciar`));
+});
+
+test('a mesma tarefa em dois sinais seguidos só se executa uma vez', async () => {
+  const registo = [];
+  const c = cenario({ rotas: rotasTarefa(tarefaSimulada(), registo), extra: semEspera });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  assert.equal(registo.filter(r => r === 'iniciar').length, 1);
+});
+
+test('uma tarefa de cada vez: outra tarefa enquanto a primeira corre fica para depois', async () => {
+  let soltar;
+  const parado = new Promise(r => { soltar = r; });
+  const registo = [];
+  let tarefa = tarefaSimulada();
+  const rotas = {
+    'POST /users/me/devices/:id/sinal': () => ({ status: 200, corpo: { result: { data: { consentimentoValido: true, tarefa } } } }),
+    'POST /users/me/devices/:id/tarefas/31/iniciar': () => { registo.push('iniciar 31'); return { status: 200, corpo: {} }; },
+    'POST /users/me/devices/:id/tarefas/32/iniciar': () => { registo.push('iniciar 32'); return { status: 200, corpo: {} }; }
+  };
+  const c = cenario({ rotas, extra: { ...semEspera, esperar: () => parado } });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  tarefa = tarefaSimulada({ tarefaId: 32 });
+  await c.tique().fn();
+  assert.deepEqual(registo, ['iniciar 31']);
+  soltar();
+  await c.d.aguardarTarefa();
+});
+
+test('tarefa não simulada nunca chama iniciar', async () => {
+  const registo = [];
+  const avisos = [];
+  const c = cenario({ rotas: rotasTarefa(tarefaSimulada({ simulada: false }), registo), extra: { ...semEspera, registar: (m) => avisos.push(m) } });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  assert.deepEqual(registo, []);
+  assert.equal(avisos.length, 1);
+});
+
+test('servidor antigo (sem tarefa na resposta) continua a funcionar', async () => {
+  const c = cenario({ extra: semEspera });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  assert.equal(c.chamadas.filter(x => /tarefas/.test(x.caminho)).length, 0);
+  assert.deepEqual(c.tray.at(-1), true);
+});
+
+test('iniciar recusado (409): não conclui e a tarefa não volta a correr', async () => {
+  const registo = [];
+  const rotas = { ...rotasTarefa(tarefaSimulada(), registo), 'POST /users/me/devices/:id/tarefas/31/iniciar': () => { registo.push('iniciar'); return { status: 409, corpo: {} }; } };
+  const c = cenario({ rotas, extra: semEspera });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  assert.deepEqual(registo, ['iniciar']);
+});
+
+test('nenhum pedido sai de /users/me/devices', async () => {
+  const registo = [];
+  const c = cenario({ rotas: rotasTarefa(tarefaSimulada({ parametros: { simular: 'falha' } }), registo), extra: semEspera });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  assert.ok(c.chamadas.length > 2);
+  for (const x of c.chamadas) assert.ok(x.caminho.startsWith('/users/me/devices'), x.caminho);
+  assert.equal(registo.at(-1)[1].estado, 'falhada');
 });
