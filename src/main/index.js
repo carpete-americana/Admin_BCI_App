@@ -32,7 +32,16 @@ const dispositivo = criarDispositivo({
   dialog,
   tray: { setOperacoes: (ligado) => tray.setOperacoes(ligado) },
   versoes: { so: `${process.platform} ${os.release()}`, electron: process.versions.electron },
-  randomUUID: () => crypto.randomUUID()
+  randomUUID: () => crypto.randomUUID(),
+  janelaVisivel: () => BrowserWindow.getAllWindows().some(w => !w.isDestroyed() && w.isVisible())
+});
+
+// Ao abrir e depois do login (cada página é um loadFile); o atraso deixa a janela voltar a aparecer depois da troca.
+const AVISO_ATRASO_MS = 4000;
+const avisarSeFaltar = () => setTimeout(() => dispositivo.perguntarSeFaltar().catch(() => {}), AVISO_ATRASO_MS);
+app.on('browser-window-created', (e, win) => {
+  win.webContents.on('did-finish-load', avisarSeFaltar);
+  win.on('show', avisarSeFaltar);
 });
 
 ipcMain.handle('github-cache:fetch', cache.handleFetch);

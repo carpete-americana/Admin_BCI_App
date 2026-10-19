@@ -8,7 +8,7 @@
  */
 
 const crypto = require('node:crypto');
-const { VERSAO_TEXTO, TITULO, TEXTO_CONSENTIMENTO, BOTOES } = require('./dispositivo-texto');
+const { VERSAO_TEXTO, TITULO, TEXTO_CONSENTIMENTO, BOTOES, AVISO } = require('./dispositivo-texto');
 const executorFicticio = require('./executorFicticio');
 
 const SINAL_MS = 2 * 60 * 1000;
@@ -46,6 +46,8 @@ function criarDispositivo(deps) {
   const esperar = deps.esperar || ((ms) => new Promise(r => setTimeout(r, ms)));
   const aleatorio = deps.aleatorio || Math.random;
   const registar = deps.registar || ((m, extra) => console.warn(m, extra || ''));
+  const janelaVisivel = deps.janelaVisivel || (() => true);
+  let aPerguntar = null;
   let intervalo = null;
   // O arranque do Windows só se reescreve quando muda (o cliente pode tê-lo desligado lá): esta marca diz que o desligámos nós.
   let arranqueSuspenso = false;
@@ -147,6 +149,36 @@ function criarDispositivo(deps) {
     await storage.setItem(s.chave, reg);
     aplicar(reg);
     return { ok: true };
+  }
+
+  /**
+   * Ao abrir a app: com a funcionalidade ligada e sem resposta para esta versão do texto, um aviso leva ao consentimento.
+   * Marca-se só neste computador (nada vai à API antes de aceitar); sem sessão, janela escondida ou sem rede não marca.
+   */
+  function perguntarSeFaltar() {
+    if (!aPerguntar) aPerguntar = perguntar().finally(() => { aPerguntar = null; });
+    return aPerguntar;
+  }
+
+  async function perguntar() {
+    const nao = { mostrado: false };
+    if (!janelaVisivel()) return nao;
+    const s = await sessao();
+    if (!s) return nao;
+    const cfg = await configDoServidor();
+    if (!cfg?.ativo || cfg.versaoConsentimento !== VERSAO_TEXTO) return nao;
+    const reg = await ler(s.chave);
+    if (reg?.consentido && reg.versao === VERSAO_TEXTO) return nao;
+    if (reg?.perguntadoVersao === VERSAO_TEXTO) return nao;
+
+    await storage.setItem(s.chave, { ...(reg || {}), perguntadoVersao: VERSAO_TEXTO });
+    const { response } = await dialog.showMessageBox({
+      type: 'info', title: AVISO.titulo, message: AVISO.mensagem, detail: AVISO.detalhe,
+      buttons: AVISO.botoes, defaultId: 0, cancelId: 1, noLink: true
+    });
+    if (response !== 0) return { mostrado: true, aceite: false };
+    const r = await aceitar();
+    return { mostrado: true, aceite: r.ok };
   }
 
   async function revogar() {
@@ -266,7 +298,7 @@ function criarDispositivo(deps) {
   }
 
   // aguardarTarefa: para os testes e para o fecho da app esperarem pela tarefa em curso.
-  return { iniciar, parar, estado, aceitar, revogar, definirArranque, aoTerminarSessao, aguardarTarefa: () => execucao || Promise.resolve() };
+  return { iniciar, parar, estado, aceitar, revogar, definirArranque, aoTerminarSessao, perguntarSeFaltar, aguardarTarefa: () => execucao || Promise.resolve() };
 }
 
 /** O arranque com o Windows passa --oculto: a janela fica criada mas escondida (o tray abre-a). */

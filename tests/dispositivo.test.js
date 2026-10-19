@@ -14,18 +14,20 @@ const { VERSAO_TEXTO } = require('../src/main/dispositivo-texto');
 
 const token = (id) => `x.${Buffer.from(JSON.stringify({ id })).toString('base64url')}.y`;
 
-function cenario({ resposta = 0, ativo = true, rotas = {}, extra = {} } = {}) {
+function cenario({ userId = 3, resposta = 0, ativo = true, versaoServidor = VERSAO_TEXTO, rotas = {}, extra = {} } = {}) {
   const chamadas = [];
   const guardado = new Map();
   const arranque = [];
   const tray = [];
-  let sessao = token(3);
+  const caixas = [];
+  let sessao = userId == null ? null : token(userId);
   let tique = null;
   const responder = async (metodo, caminho, corpo) => {
     chamadas.push({ metodo, caminho, corpo });
     const chave = `${metodo} ${caminho.replace(/[0-9a-f]{8}-[0-9a-f-]{27}/, ':id')}`;
+    if (rotas[chave] instanceof Error) throw rotas[chave];
     if (rotas[chave]) return typeof rotas[chave] === 'function' ? rotas[chave](corpo) : rotas[chave];
-    if (chave === 'GET /users/me/devices/config') return { status: 200, corpo: { result: { data: { ativo, versaoConsentimento: VERSAO_TEXTO } } } };
+    if (chave === 'GET /users/me/devices/config') return { status: 200, corpo: { result: { data: { ativo, versaoConsentimento: versaoServidor } } } };
     if (chave === 'POST /users/me/devices') return { status: 200, corpo: {} };
     if (chave === 'POST /users/me/devices/:id/sinal') return { status: 200, corpo: { result: { data: { consentimentoValido: true } } } };
     if (chave === 'DELETE /users/me/devices/:id') return { status: 200, corpo: {} };
@@ -37,7 +39,7 @@ function cenario({ resposta = 0, ativo = true, rotas = {}, extra = {} } = {}) {
     storage: { getItem: (k) => guardado.get(k) ?? null, setItem: (k, v) => { guardado.set(k, JSON.parse(JSON.stringify(v))); }, removeItem: (k) => { guardado.delete(k); } },
     safeStorage: { isEncryptionAvailable: () => true, encryptString: (s) => Buffer.from(`c:${s}`), decryptString: (b) => b.toString() },
     app: { setLoginItemSettings: (o) => arranque.push(o), getVersion: () => '1.2.0' },
-    dialog: { showMessageBox: async () => ({ response: resposta }) },
+    dialog: { showMessageBox: async (o) => { caixas.push(o); return { response: resposta }; } },
     tray: { setOperacoes: (v) => tray.push(v) },
     versoes: { so: 'win32 10.0', electron: '44.4.5' },
     randomUUID: () => crypto.randomUUID(),
@@ -45,7 +47,7 @@ function cenario({ resposta = 0, ativo = true, rotas = {}, extra = {} } = {}) {
     clearIntervalFn: () => { tique = null; },
     ...extra
   });
-  return { d, chamadas, guardado, arranque, tray, tique: () => tique, sairDaSessao: () => { sessao = null; } };
+  return { d, chamadas, guardado, arranque, tray, caixas, tique: () => tique, sairDaSessao: () => { sessao = null; }, entrarComo: (id) => { sessao = token(id); } };
 }
 
 test('nada é registado antes de aceitar; «Cancelar» não chama a API', async () => {
@@ -277,4 +279,75 @@ test('nenhum pedido sai de /users/me/devices', async () => {
   assert.ok(c.chamadas.length > 2);
   for (const x of c.chamadas) assert.ok(x.caminho.startsWith('/users/me/devices'), x.caminho);
   assert.equal(registo.at(-1)[1].estado, 'falhada');
+});
+
+// Aviso ao abrir a app: leva ao consentimento, uma vez por versão do texto.
+
+const { AVISO } = require('../src/main/dispositivo-texto');
+
+test('ligada e sem resposta: o aviso leva ao diálogo de consentimento e regista', async () => {
+  const c = cenario({ resposta: 0 });
+  const r = await c.d.perguntarSeFaltar();
+  assert.equal(r.mostrado, true);
+  assert.deepEqual(c.caixas.map(x => x.buttons), [AVISO.botoes, ['Aceito', 'Cancelar']]);
+  assert.equal(c.guardado.get('dispositivo:3').consentido, true);
+  assert.equal(c.chamadas.filter(x => x.metodo === 'POST').length, 1, 'regista só depois do «Aceito»');
+});
+
+test('«Agora não» não abre o consentimento nem regista, e não volta a perguntar nesta versão', async () => {
+  const c = cenario({ resposta: 1 });
+  assert.equal((await c.d.perguntarSeFaltar()).mostrado, true);
+  assert.equal(c.caixas.length, 1);
+  assert.equal(c.chamadas.filter(x => x.metodo === 'POST').length, 0);
+  assert.equal(c.guardado.get('dispositivo:3').consentido ?? false, false);
+  assert.equal((await c.d.perguntarSeFaltar()).mostrado, false);
+  assert.equal(c.caixas.length, 1);
+});
+
+test('versão nova do texto volta a perguntar uma vez', async () => {
+  const c = cenario({ resposta: 1 });
+  c.guardado.set('dispositivo:3', { perguntadoVersao: VERSAO_TEXTO - 1 });
+  assert.equal((await c.d.perguntarSeFaltar()).mostrado, true);
+  assert.equal(c.guardado.get('dispositivo:3').perguntadoVersao, VERSAO_TEXTO);
+});
+
+test('já aceite nesta versão, funcionalidade desligada ou app desatualizada: não pergunta', async () => {
+  const aceite = cenario();
+  await aceite.d.aceitar();
+  aceite.caixas.length = 0;
+  assert.equal((await aceite.d.perguntarSeFaltar()).mostrado, false);
+  assert.equal(aceite.caixas.length, 0);
+
+  for (const c of [cenario({ ativo: false }), cenario({ versaoServidor: VERSAO_TEXTO + 1 })]) {
+    assert.equal((await c.d.perguntarSeFaltar()).mostrado, false);
+    assert.equal(c.caixas.length, 0);
+    assert.equal(c.guardado.size, 0, 'nada fica marcado');
+  }
+});
+
+test('sem sessão ou com a janela escondida não pergunta nem marca; pergunta depois', async () => {
+  const c = cenario({ userId: null });
+  assert.equal((await c.d.perguntarSeFaltar()).mostrado, false);
+  assert.equal(c.chamadas.length, 0);
+  c.entrarComo(7);
+  assert.equal((await c.d.perguntarSeFaltar()).mostrado, true);
+
+  let visivel = false;
+  const escondida = cenario({ resposta: 1, extra: { janelaVisivel: () => visivel } });
+  assert.equal((await escondida.d.perguntarSeFaltar()).mostrado, false);
+  assert.equal(escondida.chamadas.length, 0);
+  visivel = true;
+  assert.equal((await escondida.d.perguntarSeFaltar()).mostrado, true);
+});
+
+test('chamadas seguidas (carregar e navegar) mostram um só aviso', async () => {
+  const c = cenario({ resposta: 1 });
+  await Promise.all([c.d.perguntarSeFaltar(), c.d.perguntarSeFaltar(), c.d.perguntarSeFaltar()]);
+  assert.equal(c.caixas.length, 1);
+});
+
+test('sem rede não pergunta nem marca', async () => {
+  const c = cenario({ rotas: { 'GET /users/me/devices/config': new Error('offline') } });
+  assert.equal((await c.d.perguntarSeFaltar()).mostrado, false);
+  assert.equal(c.guardado.size, 0);
 });
