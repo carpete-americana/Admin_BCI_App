@@ -18,6 +18,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
     trackFeature: (featureName) => ipcRenderer.invoke('metrics:trackFeature', featureName),
     getMetrics: () => ipcRenderer.invoke('metrics:getSummary'),
     
+    // Só pede: o consentimento é um diálogo nativo do processo principal.
+    dispositivo: {
+        estado: () => ipcRenderer.invoke('dispositivo:estado'),
+        aceitar: () => ipcRenderer.invoke('dispositivo:aceitar'),
+        revogar: () => ipcRenderer.invoke('dispositivo:revogar'),
+        definirArranque: (ligado) => ipcRenderer.invoke('dispositivo:definirArranque', ligado === true),
+    },
+
     downloadUpdate: () => ipcRenderer.send('download-update'),
     // O caminho é ignorado no processo principal.
     InstallAndUpdate: (installerPath) => ipcRenderer.send('install-and-update', installerPath),

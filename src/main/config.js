@@ -2,6 +2,8 @@ const DEBUG = false;
 
 const API_CONFIG = {
   BASE_URL: "https://admin.bcibizz.pt/frontend-api",
+  // A API de dados vive em bcibizz.pt/api, não no domínio do painel (o processo principal fala com ela nas operações automáticas).
+  API_URL: "https://bcibizz.pt/api",
   FILES_ENDPOINT: "/files",
   API_ENDPOINT: "/api/file",
   STORAGE_PREFIX: "admin-api-cache:",
