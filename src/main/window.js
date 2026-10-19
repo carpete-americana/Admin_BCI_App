@@ -2,6 +2,7 @@ const { BrowserWindow, ipcMain, screen, shell } = require('electron');
 const path = require('path');
 const ElectronStorage = require('../../js/storage');
 const { DEBUG } = require('./config');
+const { arrancarOculto } = require('./dispositivo');
 
 function loadWindowState() {
   const state = ElectronStorage.getItem('admin-window-state');
@@ -87,9 +88,11 @@ function createWindow() {
   win.setMenu(null);
   win.loadFile(path.join(__dirname, '../../public/index.html'));
   
+  // Arrancou com o Windows (--oculto): fica no tray até alguém a abrir.
+  const oculto = arrancarOculto(process.argv);
   let shown = false;
   const showSafely = () => {
-    if (shown) return;
+    if (shown || oculto) return;
     shown = true;
     if (!win.isDestroyed()) {
       win.maximize();
