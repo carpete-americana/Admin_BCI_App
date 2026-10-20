@@ -567,6 +567,21 @@ test('uma conta recusada (409) não prende a máquina: o pacote é largado no fi
   assert.equal(c.chamadas.filter(x => /pacotes\/9\/largar$/.test(x.caminho)).length, 1);
 });
 
+test('contas recusadas (pacote cancelado) não contam como feitas: nada de pausas por elas', async () => {
+  for (const [recusadas, esperadas] of [[[1, 2, 3], 0], [[2], 1]]) {
+    const pausas = [];
+    const pacote = { pacoteId: 9, loteId: 5, pausaSeg: [30, 120], contas: contasSimuladas(1, 2, 3) };
+    const rotas = { ...comPacote(pacote) };
+    for (const id of recusadas) rotas[`POST /users/me/devices/:id/tarefas/${id}/iniciar`] = { status: 409, corpo: {} };
+    const c = cenario({ rotas, extra: { ...semEspera, esperar: async (ms) => { pausas.push(ms); }, aleatorio: () => 0.5 } });
+    await c.d.aceitar();
+    c.d.iniciar();
+    await c.tique().fn();
+    await c.d.aguardarTarefa();
+    assert.equal(pausas.filter(ms => ms === 75000).length, esperadas, `recusadas ${recusadas}`);
+  }
+});
+
 test('terminar: acaba a conta atual, não começa a seguinte, avisa a-terminar e larga', async () => {
   let soltar;
   const feitas = [];

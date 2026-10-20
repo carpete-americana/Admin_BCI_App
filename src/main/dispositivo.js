@@ -355,7 +355,8 @@ function criarDispositivo(deps) {
   async function correrPacote(deviceId, pacoteId, contas, pausaSeg) {
     const [min, max] = Array.isArray(pausaSeg) ? pausaSeg.map(n => Math.max(0, Number(n) || 0)) : [30, 120];
     let iniciadas = 0;
-    let feitas = 0;
+    // Pausa só depois de uma conta que correu: as recusadas (pacote cancelado, conta entregue a outra) passam logo.
+    let pausar = false;
     for (const t of contas) {
       if (aTerminar) break;
       const tarefaId = Number(t.tarefaId);
@@ -365,19 +366,19 @@ function criarDispositivo(deps) {
         registar('Conta não simulada: esta versão da app só faz simulações', { tarefaId });
         break;
       }
-      if (feitas > 0) {
+      if (pausar) {
         const s = min + aleatorio() * Math.max(0, max - min);
         estadoPc = { pc: 'em-pausa', proximaEmSeg: Math.round(s) };
         await pausa(s * 1000);
         if (aTerminar) break;
       }
       estadoPc = { pc: 'a-trabalhar', tarefaId };
+      pausar = false;
       try {
-        await executor(t, ioDe(deviceId, tarefaId, `${tarefaId}@p${pacoteId}`, () => { iniciadas++; }));
+        await executor(t, ioDe(deviceId, tarefaId, `${tarefaId}@p${pacoteId}`, () => { iniciadas++; pausar = true; }));
       } catch (e) {
         registar('Conta do pacote não concluída', { tarefaId, erro: e.message });
       }
-      feitas++;
     }
     // Contas que não começaram (recusadas, saltadas, app a fechar): sem isto, o pacote prendia a máquina.
     if (iniciadas < contas.length) {
