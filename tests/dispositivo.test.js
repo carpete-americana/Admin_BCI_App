@@ -193,6 +193,19 @@ test('o registo e o sinal declaram tarefas e pacotes, e levam o identificador ci
   assert.deepEqual(s.estado, { pc: 'livre' });
 });
 
+test('com o consentimento do texto v1 o sinal não leva o identificador da máquina', async () => {
+  const c = cenario({ extra: semEspera });
+  await c.d.aceitar();
+  // Aceite numa versão da app anterior ao texto que fala do identificador.
+  const chave = [...c.guardado.keys()].find(k => k.startsWith('dispositivo:'));
+  c.guardado.set(chave, { ...c.guardado.get(chave), versao: 1 });
+  c.d.iniciar();
+  await c.tique().fn();
+  const s = c.chamadas.filter(x => x.metodo === 'POST').filter(p => /sinal$/.test(p.caminho)).at(-1).corpo;
+  assert.equal('maquinaId' in s, false);
+  assert.deepEqual(s.capacidades, ['tarefas-v1', 'pacotes-v1']);
+});
+
 test('tarefa simulada no sinal: inicia e conclui pelas rotas da tarefa', async () => {
   const registo = [];
   const c = cenario({ rotas: rotasTarefa(tarefaSimulada(), registo), extra: semEspera });

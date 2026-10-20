@@ -21,6 +21,8 @@ const RAIZ = '/users/me/devices';
 const CAPACIDADES = ['tarefas-v1', 'pacotes-v1'];
 const VISTAS_MAX = 50;
 const CONCLUIR_TENTATIVAS = 4;
+// O identificador da máquina só vai com o consentimento do texto que fala dele.
+const VERSAO_COM_MAQUINA = 2;
 
 /** Par X25519 em base64 (32 bytes cada); a privada nunca sai do processo principal. */
 function gerarParDeChaves() {
@@ -245,7 +247,7 @@ function criarDispositivo(deps) {
 
       const r = await api.post(`${RAIZ}/${reg.deviceId}/sinal`, {
         appVersao: app.getVersion(), electronVersao: versoes.electron, autostart: reg.autostart !== false,
-        capacidades: CAPACIDADES, maquinaId: await lerMaquina(), estado: estadoPc
+        capacidades: CAPACIDADES, ...(reg.versao >= VERSAO_COM_MAQUINA && { maquinaId: await lerMaquina() }), estado: estadoPc
       });
       if (r.status === 401 || r.status === 403) return suspender();
       if (r.status === 404) return desligarLocal(s, reg);
