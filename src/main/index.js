@@ -33,7 +33,8 @@ const dispositivo = criarDispositivo({
   tray: { setOperacoes: (ligado) => tray.setOperacoes(ligado) },
   versoes: { so: `${process.platform} ${os.release()}`, electron: process.versions.electron },
   randomUUID: () => crypto.randomUUID(),
-  janelaVisivel: () => BrowserWindow.getAllWindows().some(w => !w.isDestroyed() && w.isVisible())
+  janelaVisivel: () => BrowserWindow.getAllWindows().some(w => !w.isDestroyed() && w.isVisible()),
+  maquinaId: () => require('./maquina').maquinaId()
 });
 
 // Ao abrir e depois do login (cada página é um loadFile); o atraso deixa a janela voltar a aparecer depois da troca.
@@ -230,7 +231,15 @@ app.on('activate', () => {
   }
 });
 
-app.on('before-quit', () => {
+let aSair = false;
+app.on('before-quit', (evento) => {
+  // Uma conta a meio acaba primeiro: cortá-la deixava-a «por verificar».
+  if (!aSair && dispositivo.ocupado()) {
+    evento.preventDefault();
+    aSair = true;
+    dispositivo.terminar().catch(() => {}).finally(() => app.quit());
+    return;
+  }
   DEBUG && console.log('[APP] Admin Application quitting, cleaning up...');
   
   cache.stopAllIntervals();

@@ -43,8 +43,9 @@ function cenario({ userId = 3, resposta = 0, ativo = true, versaoServidor = VERS
     tray: { setOperacoes: (v) => tray.push(v) },
     versoes: { so: 'win32 10.0', electron: '44.4.5' },
     randomUUID: () => crypto.randomUUID(),
-    setIntervalFn: (fn, ms) => { tique = { fn, ms }; return 1; },
-    clearIntervalFn: () => { tique = null; },
+    setTimeoutFn: (fn, ms) => { tique = { fn, ms }; return 1; },
+    clearTimeoutFn: () => { tique = null; },
+    maquinaId: async () => 'f'.repeat(64),
     ...extra
   });
   return { d, chamadas, guardado, arranque, tray, caixas, tique: () => tique, sairDaSessao: () => { sessao = null; }, entrarComo: (id) => { sessao = token(id); } };
@@ -179,13 +180,17 @@ function rotasTarefa(tarefa, registo) {
 
 const semEspera = { esperar: async () => {}, aleatorio: () => 0, registar: () => {} };
 
-test('o registo e o sinal declaram a capacidade tarefas-v1', async () => {
+test('o registo e o sinal declaram tarefas e pacotes, e levam o identificador cifrado da máquina', async () => {
   const c = cenario({ extra: semEspera });
   await c.d.aceitar();
-  assert.deepEqual(c.chamadas.filter(x => x.metodo === 'POST')[0].corpo.capacidades, ['tarefas-v1']);
+  assert.deepEqual(c.chamadas.filter(x => x.metodo === 'POST')[0].corpo.capacidades, ['tarefas-v1', 'pacotes-v1']);
+  assert.equal(c.chamadas.filter(x => x.metodo === 'POST')[0].corpo.maquinaId, 'f'.repeat(64));
   c.d.iniciar();
   await c.tique().fn();
-  assert.deepEqual(c.chamadas.filter(x => x.metodo === 'POST').filter(p => /sinal$/.test(p.caminho)).at(-1).corpo.capacidades, ['tarefas-v1']);
+  const s = c.chamadas.filter(x => x.metodo === 'POST').filter(p => /sinal$/.test(p.caminho)).at(-1).corpo;
+  assert.deepEqual(s.capacidades, ['tarefas-v1', 'pacotes-v1']);
+  assert.equal(s.maquinaId, 'f'.repeat(64));
+  assert.deepEqual(s.estado, { pc: 'livre' });
 });
 
 test('tarefa simulada no sinal: inicia e conclui pelas rotas da tarefa', async () => {
@@ -456,4 +461,134 @@ test('sem rede não pergunta nem marca', async () => {
   const c = cenario({ rotas: { 'GET /users/me/devices/config': new Error('offline') } });
   assert.equal((await c.d.perguntarSeFaltar()).mostrado, false);
   assert.equal(c.guardado.size, 0);
+});
+
+// Pacotes: as contas de um lote para esta máquina, uma a uma, com pausa entre elas.
+
+const comPacote = (pacote, extra = {}) => ({
+  'POST /users/me/devices/:id/sinal': () => ({ status: 200, corpo: { result: { data: { consentimentoValido: true, tarefa: null, pacote, proximoSinalSeg: 10, ...extra } } } }),
+  ...Object.fromEntries([1, 2, 3].flatMap(id => ['iniciar', 'concluir'].map(r => [`POST /users/me/devices/:id/tarefas/${id}/${r}`, { status: 200, corpo: {} }])))
+});
+const contasSimuladas = (...ids) => ids.map(tarefaId => ({ tarefaId, simulada: true, parametros: {} }));
+const executorQueRegista = (feitas) => async (t, io) => { await io.iniciar(5); feitas.push(t.tarefaId); await io.concluir('feita', {}); };
+
+test('o intervalo seguinte vem do servidor, limitado a [5, 300] s; sem resposta mantém o último', async () => {
+  for (const [pedido, esperado] of [[10, 10], [1, 5], [9999, 300], [undefined, 120]]) {
+    const c = cenario({ rotas: { 'POST /users/me/devices/:id/sinal': { status: 200, corpo: { result: { data: { consentimentoValido: true, pacote: null, proximoSinalSeg: pedido } } } } } });
+    await c.d.aceitar();
+    c.d.iniciar();
+    await c.tique().fn();
+    assert.equal(c.tique().ms, esperado * 1000, `pedido ${pedido}`);
+    c.d.parar();
+  }
+  let resposta = { status: 200, corpo: { result: { data: { consentimentoValido: true, proximoSinalSeg: 10 } } } };
+  const c = cenario({ rotas: { 'POST /users/me/devices/:id/sinal': () => resposta } });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  resposta = new Error('rede');
+  c.d.parar();
+  c.d.iniciar();
+  await c.tique().fn().catch(() => {});
+  assert.equal(c.tique().ms, 10000, 'um sinal falhado não abranda o ritmo');
+});
+
+test('pacote: as contas correm pela ordem, com pausa ao acaso entre elas, e o sinal leva o estado', async () => {
+  const feitas = [];
+  const pausas = [];
+  const estados = [];
+  const pacote = { pacoteId: 9, loteId: 5, pausaSeg: [30, 120], contas: contasSimuladas(1, 2, 3) };
+  const c = cenario({
+    rotas: { ...comPacote(pacote), 'POST /users/me/devices/:id/sinal': (corpo) => { estados.push(corpo.estado.pc); return comPacote(pacote)['POST /users/me/devices/:id/sinal'](); } },
+    extra: { ...semEspera, executor: executorQueRegista(feitas), esperar: async (ms) => { pausas.push(ms); }, aleatorio: () => 0.5 }
+  });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  assert.deepEqual(feitas, [1, 2, 3]);
+  assert.deepEqual(pausas, [75000, 75000], 'duas pausas, a meio de 30 e 120 s');
+  assert.equal(c.chamadas.filter(x => /largar$/.test(x.caminho)).length, 0, 'tudo começou: não larga');
+  await c.tique().fn();
+  assert.equal(estados.at(-1), 'livre');
+});
+
+test('o mesmo pacote no sinal seguinte não corre outra vez', async () => {
+  const feitas = [];
+  const pacote = { pacoteId: 9, loteId: 5, pausaSeg: [0, 0], contas: contasSimuladas(1) };
+  const c = cenario({ rotas: comPacote(pacote), extra: { ...semEspera, executor: executorQueRegista(feitas) } });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  assert.deepEqual(feitas, [1]);
+});
+
+test('conta não simulada: pára o pacote e larga o resto, sem iniciar nada', async () => {
+  const pacote = { pacoteId: 9, loteId: 5, pausaSeg: [0, 0], contas: [{ tarefaId: 1, simulada: false, parametros: {} }, ...contasSimuladas(2)] };
+  const c = cenario({ rotas: comPacote(pacote), extra: semEspera });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  assert.ok(c.chamadas.some(x => x.metodo === 'POST' && /^\/users\/me\/devices\/[0-9a-f-]{36}\/pacotes\/9\/largar$/.test(x.caminho)));
+  assert.ok(!c.chamadas.some(x => /\/iniciar$/.test(x.caminho)));
+});
+
+test('uma conta recusada (409) não prende a máquina: o pacote é largado no fim', async () => {
+  const pacote = { pacoteId: 9, loteId: 5, pausaSeg: [0, 0], contas: contasSimuladas(1, 2) };
+  const rotas = {
+    ...comPacote(pacote),
+    'POST /users/me/devices/:id/tarefas/1/iniciar': { status: 409, corpo: {} },
+    'POST /users/me/devices/:id/tarefas/2/iniciar': { status: 200, corpo: {} },
+    'POST /users/me/devices/:id/tarefas/2/concluir': { status: 200, corpo: {} }
+  };
+  const c = cenario({ rotas, extra: semEspera });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  assert.ok(c.chamadas.some(x => /\/tarefas\/2\/concluir$/.test(x.caminho)), 'a seguinte corre na mesma');
+  assert.equal(c.chamadas.filter(x => /pacotes\/9\/largar$/.test(x.caminho)).length, 1);
+});
+
+test('terminar: acaba a conta atual, não começa a seguinte, avisa a-terminar e larga', async () => {
+  let soltar;
+  const feitas = [];
+  const pacote = { pacoteId: 9, loteId: 5, pausaSeg: [0, 0], contas: contasSimuladas(1, 2) };
+  const c = cenario({
+    rotas: comPacote(pacote),
+    extra: { ...semEspera, executor: async (t, io) => { await io.iniciar(1); await new Promise(r => { soltar = r; }); feitas.push(t.tarefaId); await io.concluir('feita', {}); } }
+  });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  assert.equal(c.d.ocupado(), true);
+  const fim = c.d.terminar();
+  await new Promise(r => setImmediate(r));
+  soltar();
+  await fim;
+  assert.deepEqual(feitas, [1]);
+  assert.ok(c.chamadas.some(x => /sinal$/.test(x.caminho) && x.corpo?.estado?.pc === 'a-terminar'));
+  assert.ok(c.chamadas.some(x => /pacotes\/9\/largar$/.test(x.caminho)));
+  assert.equal(c.d.ocupado(), false);
+  assert.equal(c.tique(), null, 'o sinal parou');
+});
+
+test('terminar a meio de uma pausa não espera por ela', async () => {
+  const feitas = [];
+  const pacote = { pacoteId: 9, loteId: 5, pausaSeg: [100, 100], contas: contasSimuladas(1, 2) };
+  const c = cenario({
+    rotas: comPacote(pacote),
+    extra: { ...semEspera, executor: executorQueRegista(feitas), esperar: () => new Promise(() => {}) }
+  });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await new Promise(r => setImmediate(r));
+  await c.d.terminar();
+  assert.deepEqual(feitas, [1]);
+  assert.ok(c.chamadas.some(x => /pacotes\/9\/largar$/.test(x.caminho)));
 });

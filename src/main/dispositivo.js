@@ -2,7 +2,7 @@
 
 /**
  * Operações automáticas neste computador: consentimento, chave do dispositivo, sinal, arranque com o Windows
- * e (fase 2) as tarefas simuladas que o servidor entrega na resposta do sinal.
+ * e as tarefas simuladas que o servidor entrega na resposta do sinal: soltas (servidor antigo) ou em pacotes, conta a conta.
  * Igual ao da User App (repositórios separados, sem pacote partilhado): mudar um obriga a mudar o outro.
  * Sem `require('electron')`: tudo vem por dependências, para testar com node --test.
  */
@@ -12,9 +12,13 @@ const { VERSAO_TEXTO, TITULO, TEXTO_CONSENTIMENTO, BOTOES, AVISO } = require('./
 const executorFicticio = require('./executorFicticio');
 
 const SINAL_MS = 2 * 60 * 1000;
+// O servidor diz quando quer o sinal seguinte (proximoSinalSeg); limitado a isto.
+const SINAL_MIN_SEG = 5;
+const SINAL_MAX_SEG = 300;
+const TERMINAR_MAX_MS = 60 * 1000;
 const RAIZ = '/users/me/devices';
 // O servidor só entrega tarefas a quem declara saber fazê-las.
-const CAPACIDADES = ['tarefas-v1'];
+const CAPACIDADES = ['tarefas-v1', 'pacotes-v1'];
 const VISTAS_MAX = 50;
 const CONCLUIR_TENTATIVAS = 4;
 
@@ -41,15 +45,23 @@ const dadosDe = (r) => r?.corpo?.result?.data ?? r?.corpo?.data ?? null;
 
 function criarDispositivo(deps) {
   const { api, lerToken, storage, safeStorage, app, dialog, tray, versoes, randomUUID } = deps;
-  const definirIntervalo = deps.setIntervalFn || setInterval;
-  const limparIntervalo = deps.clearIntervalFn || clearInterval;
+  const agendarFn = deps.setTimeoutFn || setTimeout;
+  const desagendarFn = deps.clearTimeoutFn || clearTimeout;
+  const lerMaquina = deps.maquinaId || (() => Promise.resolve(null));
   const executor = deps.executor || executorFicticio.executar;
   const esperar = deps.esperar || ((ms) => new Promise(r => setTimeout(r, ms)));
   const aleatorio = deps.aleatorio || Math.random;
   const registar = deps.registar || ((m, extra) => console.warn(m, extra || ''));
   const janelaVisivel = deps.janelaVisivel || (() => true);
   let aPerguntar = null;
-  let intervalo = null;
+  let temporizador = null;
+  let ligado = false;
+  // Sem resposta do servidor, o sinal seguinte vem ao mesmo ritmo do último.
+  let intervaloSeg = SINAL_MS / 1000;
+  let aTerminar = false;
+  let acordarPausa = null;
+  // O que o computador diz no sinal que está a fazer; o painel mostra-o.
+  let estadoPc = { pc: 'livre' };
   // O arranque do Windows só se reescreve quando muda (o cliente pode tê-lo desligado lá): esta marca diz que o desligámos nós.
   let arranqueSuspenso = false;
   // Uma tarefa de cada vez; as já vistas não voltam a correr (o servidor repete-a no sinal até ela começar).
@@ -138,7 +150,7 @@ function criarDispositivo(deps) {
     try {
       r = await api.post(RAIZ, {
         deviceId: reg.deviceId, chavePublica: reg.chavePublica, so: versoes.so, appVersao: app.getVersion(),
-        electronVersao: versoes.electron, autostart: true, versao: VERSAO_TEXTO, capacidades: CAPACIDADES
+        electronVersao: versoes.electron, autostart: true, versao: VERSAO_TEXTO, capacidades: CAPACIDADES, maquinaId: await lerMaquina()
       });
     } catch (e) {
       return { ok: false, motivo: 'rede' };
@@ -216,7 +228,7 @@ function criarDispositivo(deps) {
     aplicar(novo);
   }
 
-  /** Um sinal: confirma ao servidor que este computador está ligado e aplica o que ele responder. */
+  /** Um sinal: confirma ao servidor que este computador está ligado e aplica o que ele responder. Devolve o proximoSinalSeg pedido. */
   async function sinal() {
     try {
       const s = await sessao();
@@ -231,7 +243,10 @@ function criarDispositivo(deps) {
       }
       if (!reg.consentido) return;
 
-      const r = await api.post(`${RAIZ}/${reg.deviceId}/sinal`, { appVersao: app.getVersion(), electronVersao: versoes.electron, autostart: reg.autostart !== false, capacidades: CAPACIDADES });
+      const r = await api.post(`${RAIZ}/${reg.deviceId}/sinal`, {
+        appVersao: app.getVersion(), electronVersao: versoes.electron, autostart: reg.autostart !== false,
+        capacidades: CAPACIDADES, maquinaId: await lerMaquina(), estado: estadoPc
+      });
       if (r.status === 401 || r.status === 403) return suspender();
       if (r.status === 404) return desligarLocal(s, reg);
       if (r.status !== 200) return;
@@ -246,7 +261,9 @@ function criarDispositivo(deps) {
         arranqueSuspenso = false;
         aplicarArranque(reg.autostart !== false);
       }
-      if (d?.tarefa) tratarTarefa(reg.deviceId, d.tarefa);
+      if (d?.pacote) tratarPacote(reg.deviceId, d.pacote);
+      else if (d?.tarefa) tratarTarefa(reg.deviceId, d.tarefa);
+      return d?.proximoSinalSeg;
     } catch (e) {
       // Sem rede ou erro do servidor: tenta-se no ciclo seguinte.
     }
@@ -257,20 +274,10 @@ function criarDispositivo(deps) {
     if (i >= 0) vistas.splice(i, 1);
   }
 
-  /** Lança a tarefa sem esperar por ela. Só simuladas: esta versão não sabe fazer tarefas reais. */
-  function tratarTarefa(deviceId, tarefa) {
-    const id = Number(tarefa.tarefaId);
-    // Com o lease na chave, a mesma tarefa devolvida à fila e atribuída outra vez a este PC volta a correr.
-    const chave = `${id}@${tarefa.leaseAte || ''}`;
-    if (!Number.isInteger(id) || id <= 0 || execucao || vistas.includes(chave)) return;
-    vistas.push(chave);
-    if (vistas.length > VISTAS_MAX) vistas.shift();
-    if (tarefa.simulada !== true) {
-      registar('Tarefa não simulada ignorada: esta versão da app só faz simulações', { tarefaId: id });
-      return;
-    }
+  /** As rotas de uma tarefa para o executor; `aoIniciar` corre quando o servidor aceita o início. */
+  function ioDe(deviceId, id, chave, aoIniciar = () => {}) {
     const base = `${RAIZ}/${deviceId}/tarefas/${id}`;
-    const io = {
+    return {
       iniciar: async (estimativaSeg) => {
         let r;
         try {
@@ -284,9 +291,12 @@ function criarDispositivo(deps) {
           if (r.status >= 500) esquecer(chave);
           throw new Error(`iniciar recusado (${r.status})`);
         }
+        estadoPc = { pc: 'a-trabalhar', tarefaId: id };
+        aoIniciar();
       },
       // Só informativo para o painel: nunca atrasa nem interrompe a tarefa.
       progresso: async (passo, restanteSeg) => {
+        estadoPc = { pc: 'a-trabalhar', tarefaId: id, passo, restanteSeg: Math.round(restanteSeg) };
         try { await api.post(`${base}/progresso`, { passo, restanteSeg: Math.round(restanteSeg) }); } catch (e) { /* o painel fica com o passo anterior */ }
       },
       // O resultado é o que mais custa perder: repete-se com pausa se a rede ou o servidor falharem.
@@ -303,21 +313,108 @@ function criarDispositivo(deps) {
       esperar,
       aleatorio
     };
+  }
+
+  /** Lança a tarefa sem esperar por ela. Só simuladas: esta versão não sabe fazer tarefas reais. */
+  function tratarTarefa(deviceId, tarefa) {
+    const id = Number(tarefa.tarefaId);
+    // Com o lease na chave, a mesma tarefa devolvida à fila e atribuída outra vez a este PC volta a correr.
+    const chave = `${id}@${tarefa.leaseAte || ''}`;
+    if (!Number.isInteger(id) || id <= 0 || execucao || aTerminar || vistas.includes(chave)) return;
+    vistas.push(chave);
+    if (vistas.length > VISTAS_MAX) vistas.shift();
+    if (tarefa.simulada !== true) {
+      registar('Tarefa não simulada ignorada: esta versão da app só faz simulações', { tarefaId: id });
+      return;
+    }
     execucao = Promise.resolve()
-      .then(() => executor(tarefa, io))
+      .then(() => executor(tarefa, ioDe(deviceId, id, chave)))
       .catch(e => registar('Tarefa não concluída', { tarefaId: id, erro: e.message }))
-      .finally(() => { execucao = null; });
+      .finally(() => { execucao = null; estadoPc = { pc: aTerminar ? 'a-terminar' : 'livre' }; });
+  }
+
+  /** O pacote corre conta a conta, com uma pausa ao acaso entre elas. O que não chegar a começar volta à fila. */
+  function tratarPacote(deviceId, pacote) {
+    const id = Number(pacote.pacoteId);
+    const chave = `p${id}`;
+    if (!Number.isInteger(id) || id <= 0 || execucao || aTerminar || vistas.includes(chave)) return;
+    vistas.push(chave);
+    if (vistas.length > VISTAS_MAX) vistas.shift();
+    execucao = correrPacote(deviceId, id, Array.isArray(pacote.contas) ? pacote.contas : [], pacote.pausaSeg)
+      .catch(e => registar('Pacote não concluído', { pacoteId: id, erro: e.message }))
+      .finally(() => { execucao = null; estadoPc = { pc: aTerminar ? 'a-terminar' : 'livre' }; });
+  }
+
+  /** Pausa entre contas; o fecho da app acorda-a logo. */
+  function pausa(ms) {
+    return Promise.race([esperar(ms), new Promise(r => { acordarPausa = r; })]).finally(() => { acordarPausa = null; });
+  }
+
+  async function correrPacote(deviceId, pacoteId, contas, pausaSeg) {
+    const [min, max] = Array.isArray(pausaSeg) ? pausaSeg.map(n => Math.max(0, Number(n) || 0)) : [30, 120];
+    let iniciadas = 0;
+    let feitas = 0;
+    for (const t of contas) {
+      if (aTerminar) break;
+      const tarefaId = Number(t.tarefaId);
+      // A meio quando a app fechou: não se retoma, o servidor passa-a a «por verificar».
+      if (t.estado === 'a-decorrer') { iniciadas++; continue; }
+      if (t.simulada !== true) {
+        registar('Conta não simulada: esta versão da app só faz simulações', { tarefaId });
+        break;
+      }
+      if (feitas > 0) {
+        const s = min + aleatorio() * Math.max(0, max - min);
+        estadoPc = { pc: 'em-pausa', proximaEmSeg: Math.round(s) };
+        await pausa(s * 1000);
+        if (aTerminar) break;
+      }
+      estadoPc = { pc: 'a-trabalhar', tarefaId };
+      try {
+        await executor(t, ioDe(deviceId, tarefaId, `${tarefaId}@p${pacoteId}`, () => { iniciadas++; }));
+      } catch (e) {
+        registar('Conta do pacote não concluída', { tarefaId, erro: e.message });
+      }
+      feitas++;
+    }
+    // Contas que não começaram (recusadas, saltadas, app a fechar): sem isto, o pacote prendia a máquina.
+    if (iniciadas < contas.length) {
+      try { await api.post(`${RAIZ}/${deviceId}/pacotes/${pacoteId}/largar`, {}); } catch (e) { /* sem sinal, o servidor interrompe-o sozinho */ }
+    }
+  }
+
+  function agendar(seg) {
+    if (!ligado) return;
+    if (seg != null && Number.isFinite(Number(seg))) intervaloSeg = Math.min(SINAL_MAX_SEG, Math.max(SINAL_MIN_SEG, Number(seg)));
+    if (temporizador) desagendarFn(temporizador);
+    temporizador = agendarFn(async () => { temporizador = null; agendar(await sinal()); }, intervaloSeg * 1000);
   }
 
   function iniciar() {
-    if (intervalo) return;
-    intervalo = definirIntervalo(sinal, SINAL_MS);
-    sinal();
+    if (ligado) return;
+    ligado = true;
+    agendar();
+    sinal().then(seg => { if (seg != null) agendar(seg); });
   }
 
   function parar() {
-    if (intervalo) limparIntervalo(intervalo);
-    intervalo = null;
+    ligado = false;
+    if (temporizador) desagendarFn(temporizador);
+    temporizador = null;
+  }
+
+  /** Fecho da app: acaba a conta atual (no máximo 60 s), não começa outra e larga o resto do pacote. */
+  async function terminar() {
+    aTerminar = true;
+    estadoPc = { pc: 'a-terminar' };
+    acordarPausa?.();
+    await sinal();
+    if (execucao) {
+      let limite;
+      await Promise.race([execucao, new Promise(r => { limite = setTimeout(r, TERMINAR_MAX_MS); })]);
+      clearTimeout(limite);
+    }
+    parar();
   }
 
   /** Logout: o arranque automático desliga-se, mas o consentimento fica (volta a valer no próximo login). */
@@ -328,7 +425,10 @@ function criarDispositivo(deps) {
   }
 
   // aguardarTarefa: para os testes e para o fecho da app esperarem pela tarefa em curso.
-  return { iniciar, parar, estado, aceitar, revogar, definirArranque, aoTerminarSessao, perguntarSeFaltar, aguardarTarefa: () => execucao || Promise.resolve() };
+  return {
+    iniciar, parar, terminar, estado, aceitar, revogar, definirArranque, aoTerminarSessao, perguntarSeFaltar,
+    aguardarTarefa: () => execucao || Promise.resolve(), ocupado: () => !!execucao
+  };
 }
 
 /** O arranque com o Windows passa --oculto: a janela fica criada mas escondida (o tray abre-a). */
