@@ -236,8 +236,7 @@ function checkForUpdates() {
   };
   
   setTimeout(performCheck, 5 * 1000);
-  
-  if(DEBUG)
+  // A app vive no tray dias seguidos: só no arranque, quem nunca a fecha nunca via a atualização.
   setInterval(performCheck, checkInterval);
 }
 
