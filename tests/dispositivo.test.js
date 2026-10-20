@@ -281,6 +281,112 @@ test('nenhum pedido sai de /users/me/devices', async () => {
   assert.equal(registo.at(-1)[1].estado, 'falhada');
 });
 
+test('a tarefa simulada avisa o progresso e a estimativa ao servidor', async () => {
+  const registo = [];
+  const rotas = {
+    ...rotasTarefa(tarefaSimulada(), registo),
+    'POST /users/me/devices/:id/tarefas/31/iniciar': (corpo) => { registo.push(['iniciar', corpo]); return { status: 200, corpo: {} }; },
+    'POST /users/me/devices/:id/tarefas/31/progresso': (corpo) => { registo.push(['progresso', corpo]); return { status: 200, corpo: {} }; }
+  };
+  const c = cenario({ rotas, extra: semEspera });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  const ini = registo.find(r => r[0] === 'iniciar');
+  assert.equal(ini[1].estimativaSeg, 5, 'aleatorio 0 → 5 s');
+  const avisos = registo.filter(r => r[0] === 'progresso').map(r => r[1]);
+  assert.equal(avisos.length, 4);
+  assert.ok(avisos.every(a => a.passo === 'a-simular'));
+  assert.deepEqual(avisos.map(a => a.restanteSeg), [5, 4, 3, 1], "5 s em 4 fatias, arredondado");
+});
+
+test('o aviso de progresso falhar não interrompe a tarefa', async () => {
+  const registo = [];
+  const rotas = { ...rotasTarefa(tarefaSimulada(), registo), 'POST /users/me/devices/:id/tarefas/31/progresso': new Error('rede') };
+  const c = cenario({ rotas, extra: semEspera });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  assert.equal(registo.at(-1)[1].estado, 'feita');
+});
+
+test('concluir repete quando a rede falha ou o servidor responde 5xx, e pára nos 4xx', async () => {
+  for (const [falhas, esperado] of [[[new Error('rede'), { status: 503, corpo: {} }], 3], [[{ status: 409, corpo: {} }], 1]]) {
+    let n = 0;
+    const pausas = [];
+    const rotas = {
+      ...comTarefa(tarefaSimulada()),
+      'POST /users/me/devices/:id/tarefas/31/iniciar': { status: 200, corpo: {} },
+      'POST /users/me/devices/:id/tarefas/31/concluir': () => { const r = falhas[n++]; if (r instanceof Error) throw r; return r || { status: 200, corpo: {} }; }
+    };
+    const c = cenario({ rotas, extra: { ...semEspera, esperar: async (ms) => { pausas.push(ms); } } });
+    await c.d.aceitar();
+    c.d.iniciar();
+    await c.tique().fn();
+    await c.d.aguardarTarefa();
+    assert.equal(n, esperado);
+  }
+});
+
+test('concluir desiste ao fim de 4 tentativas e regista, sem rebentar', async () => {
+  const avisos = [];
+  const rotas = {
+    ...comTarefa(tarefaSimulada()),
+    'POST /users/me/devices/:id/tarefas/31/iniciar': { status: 200, corpo: {} },
+    'POST /users/me/devices/:id/tarefas/31/concluir': { status: 500, corpo: {} }
+  };
+  const c = cenario({ rotas, extra: { ...semEspera, registar: (m) => avisos.push(m) } });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  assert.equal(c.chamadas.filter(x => /concluir$/.test(x.caminho)).length, 4);
+  assert.ok(avisos.some(m => /não entregue/.test(m)));
+});
+
+test('iniciar falha por rede ou 5xx: a tarefa volta a tentar-se no sinal seguinte; 4xx não', async () => {
+  for (const [resposta, deveRepetir] of [[new Error('rede'), true], [{ status: 503, corpo: {} }, true], [{ status: 409, corpo: {} }, false]]) {
+    let n = 0;
+    const rotas = {
+      ...comTarefa(tarefaSimulada()),
+      'POST /users/me/devices/:id/tarefas/31/iniciar': () => { n++; if (n === 1) { if (resposta instanceof Error) throw resposta; return resposta; } return { status: 200, corpo: {} }; },
+      'POST /users/me/devices/:id/tarefas/31/concluir': { status: 200, corpo: {} }
+    };
+    const c = cenario({ rotas, extra: semEspera });
+    await c.d.aceitar();
+    c.d.iniciar();
+    await c.tique().fn();
+    await c.d.aguardarTarefa();
+    await c.tique().fn();
+    await c.d.aguardarTarefa();
+    assert.equal(n, deveRepetir ? 2 : 1, String(resposta.status || resposta.message));
+  }
+});
+
+test('a mesma tarefa reatribuída (outro lease) volta a correr; no mesmo lease não', async () => {
+  const registo = [];
+  let tarefa = tarefaSimulada();
+  const rotas = {
+    'POST /users/me/devices/:id/sinal': () => ({ status: 200, corpo: { result: { data: { consentimentoValido: true, tarefa } } } }),
+    'POST /users/me/devices/:id/tarefas/31/iniciar': () => { registo.push('iniciar'); return { status: 200, corpo: {} }; },
+    'POST /users/me/devices/:id/tarefas/31/concluir': { status: 200, corpo: {} }
+  };
+  const c = cenario({ rotas, extra: semEspera });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  assert.equal(registo.length, 1, 'mesmo lease: uma vez');
+  tarefa = tarefaSimulada({ leaseAte: '2026-10-19T13:00:00Z' });
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  assert.equal(registo.length, 2, 'lease novo: corre outra vez');
+});
+
 // Aviso ao abrir a app: leva ao consentimento, uma vez por versão do texto.
 
 const { AVISO } = require('../src/main/dispositivo-texto');

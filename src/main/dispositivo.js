@@ -16,6 +16,7 @@ const RAIZ = '/users/me/devices';
 // O servidor só entrega tarefas a quem declara saber fazê-las.
 const CAPACIDADES = ['tarefas-v1'];
 const VISTAS_MAX = 50;
+const CONCLUIR_TENTATIVAS = 4;
 
 /** Par X25519 em base64 (32 bytes cada); a privada nunca sai do processo principal. */
 function gerarParDeChaves() {
@@ -251,11 +252,18 @@ function criarDispositivo(deps) {
     }
   }
 
+  function esquecer(chave) {
+    const i = vistas.indexOf(chave);
+    if (i >= 0) vistas.splice(i, 1);
+  }
+
   /** Lança a tarefa sem esperar por ela. Só simuladas: esta versão não sabe fazer tarefas reais. */
   function tratarTarefa(deviceId, tarefa) {
     const id = Number(tarefa.tarefaId);
-    if (!Number.isInteger(id) || id <= 0 || execucao || vistas.includes(id)) return;
-    vistas.push(id);
+    // Com o lease na chave, a mesma tarefa devolvida à fila e atribuída outra vez a este PC volta a correr.
+    const chave = `${id}@${tarefa.leaseAte || ''}`;
+    if (!Number.isInteger(id) || id <= 0 || execucao || vistas.includes(chave)) return;
+    vistas.push(chave);
     if (vistas.length > VISTAS_MAX) vistas.shift();
     if (tarefa.simulada !== true) {
       registar('Tarefa não simulada ignorada: esta versão da app só faz simulações', { tarefaId: id });
@@ -263,12 +271,34 @@ function criarDispositivo(deps) {
     }
     const base = `${RAIZ}/${deviceId}/tarefas/${id}`;
     const io = {
-      iniciar: async () => {
-        const r = await api.post(`${base}/iniciar`, {});
-        if (r.status !== 200) throw new Error(`iniciar recusado (${r.status})`);
+      iniciar: async (estimativaSeg) => {
+        let r;
+        try {
+          r = await api.post(`${base}/iniciar`, estimativaSeg > 0 ? { estimativaSeg: Math.round(estimativaSeg) } : {});
+        } catch (e) {
+          esquecer(chave);
+          throw e;
+        }
+        if (r.status !== 200) {
+          // Recusa definitiva (4xx) não se repete; falha do servidor repete-se no sinal seguinte.
+          if (r.status >= 500) esquecer(chave);
+          throw new Error(`iniciar recusado (${r.status})`);
+        }
       },
+      // Só informativo para o painel: nunca atrasa nem interrompe a tarefa.
+      progresso: async (passo, restanteSeg) => {
+        try { await api.post(`${base}/progresso`, { passo, restanteSeg: Math.round(restanteSeg) }); } catch (e) { /* o painel fica com o passo anterior */ }
+      },
+      // O resultado é o que mais custa perder: repete-se com pausa se a rede ou o servidor falharem.
       concluir: async (estado, resultado) => {
-        await api.post(`${base}/concluir`, { estado, resultado });
+        for (let i = 0; i < CONCLUIR_TENTATIVAS; i++) {
+          try {
+            const r = await api.post(`${base}/concluir`, { estado, resultado });
+            if (r.status === 200 || (r.status >= 400 && r.status < 500 && r.status !== 429)) return;
+          } catch (e) { /* tenta outra vez */ }
+          if (i < CONCLUIR_TENTATIVAS - 1) await esperar(2000 * (i + 1));
+        }
+        registar('Resultado da tarefa não entregue', { tarefaId: id });
       },
       esperar,
       aleatorio
