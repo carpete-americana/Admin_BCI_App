@@ -24,6 +24,9 @@ const CONCLUIR_TENTATIVAS = 4;
 // O identificador da máquina só vai com o consentimento do texto que fala dele.
 const VERSAO_COM_MAQUINA = 2;
 
+/** AAAA-MM-DD na hora local: o pedido repete-se uma vez por dia do utilizador. */
+const diaLocal = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 /** Par X25519 em base64 (32 bytes cada); a privada nunca sai do processo principal. */
 function gerarParDeChaves() {
   const { publicKey, privateKey } = crypto.generateKeyPairSync('x25519');
@@ -46,7 +49,7 @@ function userIdDoToken(token) {
 const dadosDe = (r) => r?.corpo?.result?.data ?? r?.corpo?.data ?? null;
 
 function criarDispositivo(deps) {
-  const { api, lerToken, storage, safeStorage, app, dialog, tray, versoes, randomUUID } = deps;
+  const { api, lerToken, storage, safeStorage, app, pedirConsentimento, tray, versoes, randomUUID } = deps;
   const agendarFn = deps.setTimeoutFn || setTimeout;
   const desagendarFn = deps.clearTimeoutFn || clearTimeout;
   const lerMaquina = deps.maquinaId || (() => Promise.resolve(null));
@@ -55,6 +58,7 @@ function criarDispositivo(deps) {
   const aleatorio = deps.aleatorio || Math.random;
   const registar = deps.registar || ((m, extra) => console.warn(m, extra || ''));
   const janelaVisivel = deps.janelaVisivel || (() => true);
+  const agora = deps.agora || (() => new Date());
   let aPerguntar = null;
   let temporizador = null;
   let ligado = false;
@@ -131,11 +135,8 @@ function criarDispositivo(deps) {
     if (cfg.versaoConsentimento !== VERSAO_TEXTO) return { ok: false, motivo: 'app-desatualizada' };
     if (!safeStorage.isEncryptionAvailable()) return { ok: false, motivo: 'sem-cifra' };
 
-    const { response } = await dialog.showMessageBox({
-      type: 'question', title: TITULO, message: TITULO, detail: TEXTO_CONSENTIMENTO,
-      buttons: BOTOES, defaultId: 1, cancelId: 1, noLink: true
-    });
-    if (response !== 0) return { ok: false, motivo: 'cancelado' };
+    const aceite = await pedirConsentimento({ modo: 'pedido', titulo: TITULO, texto: TEXTO_CONSENTIMENTO, botoes: BOTOES });
+    if (!aceite) return { ok: false, motivo: 'cancelado' };
 
     // A chave e o deviceId mantêm-se entre revogações: o servidor não deixa trocar a chave de um deviceId.
     let reg = await ler(s.chave);
@@ -167,7 +168,7 @@ function criarDispositivo(deps) {
   }
 
   /**
-   * Ao abrir a app: com a funcionalidade ligada e sem resposta para esta versão do texto, um aviso leva ao consentimento.
+   * Ao abrir a app: com a funcionalidade ligada e sem consentimento válido, um aviso leva ao pedido, no máximo uma vez por dia.
    * Marca-se só neste computador (nada vai à API antes de aceitar); sem sessão, janela escondida ou sem rede não marca.
    */
   function perguntarSeFaltar() {
@@ -184,14 +185,12 @@ function criarDispositivo(deps) {
     if (!cfg?.ativo || cfg.versaoConsentimento !== VERSAO_TEXTO) return nao;
     const reg = await ler(s.chave);
     if (reg?.consentido && reg.versao === VERSAO_TEXTO) return nao;
-    if (reg?.perguntadoVersao === VERSAO_TEXTO) return nao;
+    const hoje = diaLocal(agora());
+    if (reg?.perguntadoEm === hoje) return nao;
 
-    await storage.setItem(s.chave, { ...(reg || {}), perguntadoVersao: VERSAO_TEXTO });
-    const { response } = await dialog.showMessageBox({
-      type: 'info', title: AVISO.titulo, message: AVISO.mensagem, detail: AVISO.detalhe,
-      buttons: AVISO.botoes, defaultId: 0, cancelId: 1, noLink: true
-    });
-    if (response !== 0) return { mostrado: true, aceite: false };
+    await storage.setItem(s.chave, { ...(reg || {}), perguntadoEm: hoje });
+    const quer = await pedirConsentimento({ modo: 'aviso', titulo: AVISO.titulo, texto: `${AVISO.mensagem}\n\n${AVISO.detalhe}`, botoes: AVISO.botoes });
+    if (!quer) return { mostrado: true, aceite: false };
     const r = await aceitar();
     return { mostrado: true, aceite: r.ok };
   }

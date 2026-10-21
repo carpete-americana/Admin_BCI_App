@@ -39,7 +39,7 @@ function cenario({ userId = 3, resposta = 0, ativo = true, versaoServidor = VERS
     storage: { getItem: (k) => guardado.get(k) ?? null, setItem: (k, v) => { guardado.set(k, JSON.parse(JSON.stringify(v))); }, removeItem: (k) => { guardado.delete(k); } },
     safeStorage: { isEncryptionAvailable: () => true, encryptString: (s) => Buffer.from(`c:${s}`), decryptString: (b) => b.toString() },
     app: { setLoginItemSettings: (o) => arranque.push(o), getVersion: () => '1.2.0' },
-    dialog: { showMessageBox: async (o) => { caixas.push(o); return { response: resposta }; } },
+    pedirConsentimento: async (o) => { caixas.push(o); return resposta === 0; },
     tray: { setOperacoes: (v) => tray.push(v) },
     versoes: { so: 'win32 10.0', electron: '44.4.5' },
     randomUUID: () => crypto.randomUUID(),
@@ -407,18 +407,18 @@ test('a mesma tarefa reatribuída (outro lease) volta a correr; no mesmo lease n
 
 // Aviso ao abrir a app: leva ao consentimento, uma vez por versão do texto.
 
-const { AVISO } = require('../src/main/dispositivo-texto');
+const { AVISO, TEXTO_CONSENTIMENTO } = require('../src/main/dispositivo-texto');
 
 test('ligada e sem resposta: o aviso leva ao diálogo de consentimento e regista', async () => {
   const c = cenario({ resposta: 0 });
   const r = await c.d.perguntarSeFaltar();
   assert.equal(r.mostrado, true);
-  assert.deepEqual(c.caixas.map(x => x.buttons), [AVISO.botoes, ['Aceito', 'Cancelar']]);
+  assert.deepEqual(c.caixas.map(x => x.botoes), [AVISO.botoes, ['Aceito', 'Cancelar']]);
   assert.equal(c.guardado.get('dispositivo:3').consentido, true);
   assert.equal(c.chamadas.filter(x => x.metodo === 'POST').length, 1, 'regista só depois do «Aceito»');
 });
 
-test('«Agora não» não abre o consentimento nem regista, e não volta a perguntar nesta versão', async () => {
+test('«Agora não» não abre o pedido nem regista, e não volta a perguntar no mesmo dia', async () => {
   const c = cenario({ resposta: 1 });
   assert.equal((await c.d.perguntarSeFaltar()).mostrado, true);
   assert.equal(c.caixas.length, 1);
@@ -428,13 +428,44 @@ test('«Agora não» não abre o consentimento nem regista, e não volta a pergu
   assert.equal(c.caixas.length, 1);
 });
 
-test('versão nova do texto volta a perguntar uma vez', async () => {
-  const c = cenario({ resposta: 1 });
-  c.guardado.set('dispositivo:3', { perguntadoVersao: VERSAO_TEXTO - 1 });
+// A data é a local (AAAA-MM-DD): o relógio falso mostra que o dia seguinte volta a perguntar.
+const dia = (ano, mes, d, h = 12) => new Date(ano, mes - 1, d, h, 0, 0);
+
+test('«Agora não» grava o dia de hoje e só volta a perguntar no dia seguinte', async () => {
+  let agora = dia(2026, 10, 21);
+  const c = cenario({ resposta: 1, extra: { agora: () => agora } });
   assert.equal((await c.d.perguntarSeFaltar()).mostrado, true);
-  assert.equal(c.guardado.get('dispositivo:3').perguntadoVersao, VERSAO_TEXTO);
+  assert.equal(c.guardado.get('dispositivo:3').perguntadoEm, '2026-10-21');
+  agora = dia(2026, 10, 21, 23);
+  assert.equal((await c.d.perguntarSeFaltar()).mostrado, false, 'no mesmo dia');
+  assert.equal(c.caixas.length, 1);
+  agora = dia(2026, 10, 22, 0);
+  assert.equal((await c.d.perguntarSeFaltar()).mostrado, true, 'no dia seguinte');
+  assert.equal(c.caixas.length, 2);
+  assert.equal(c.guardado.get('dispositivo:3').perguntadoEm, '2026-10-22');
 });
 
+test('quem revogou volta a ver o pedido no dia seguinte', async () => {
+  let agora = dia(2026, 10, 21);
+  const c = cenario({ resposta: 1, extra: { agora: () => agora } });
+  // Como fica o registo depois de revogar: a chave e o deviceId mantêm-se, o consentimento não.
+  c.guardado.set('dispositivo:3', { deviceId: 'x', consentido: false, versao: VERSAO_TEXTO, revogarPendente: false });
+  assert.equal((await c.d.perguntarSeFaltar()).mostrado, true);
+  c.caixas.length = 0;
+  assert.equal((await c.d.perguntarSeFaltar()).mostrado, false);
+  agora = dia(2026, 10, 22);
+  assert.equal((await c.d.perguntarSeFaltar()).mostrado, true);
+});
+
+test('o aviso e o pedido usam a janela do consentimento, com os textos certos', async () => {
+  const c = cenario({ resposta: 0 });
+  const r = await c.d.perguntarSeFaltar();
+  assert.deepEqual(r, { mostrado: true, aceite: true });
+  assert.deepEqual(c.caixas.map(x => x.modo), ['aviso', 'pedido']);
+  assert.equal(c.caixas[0].titulo, AVISO.titulo);
+  assert.ok(c.caixas[0].texto.includes(AVISO.mensagem) && c.caixas[0].texto.includes(AVISO.detalhe));
+  assert.equal(c.caixas[1].texto, TEXTO_CONSENTIMENTO);
+});
 test('já aceite nesta versão, funcionalidade desligada ou app desatualizada: não pergunta', async () => {
   const aceite = cenario();
   await aceite.d.aceitar();

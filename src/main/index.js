@@ -1,7 +1,7 @@
 require('dotenv').config();
 const os = require('os');
 const crypto = require('crypto');
-const { app, globalShortcut, ipcMain, BrowserWindow, safeStorage, dialog } = require('electron');
+const { app, globalShortcut, ipcMain, BrowserWindow, safeStorage } = require('electron');
 const ElectronStorage = require('../../js/storage');
 const { DEBUG, API_CONFIG } = require('./config');
 const cache = require('./cache');
@@ -14,6 +14,7 @@ const security = require('./security');
 const metrics = require('./metrics');
 const assets = require('./assets');
 const { criarDispositivo } = require('./dispositivo');
+const { pedirConsentimento } = require('./consentimentoJanela');
 const { criarApi } = require('./apiDados');
 
 const lerTokenDoAdmin = async () => {
@@ -21,7 +22,7 @@ const lerTokenDoAdmin = async () => {
   return typeof valor === 'string' && valor ? valor : null;
 };
 
-// Operações automáticas neste computador: o consentimento é pedido aqui, num diálogo nativo, nunca pela página.
+// Operações automáticas neste computador: o consentimento é pedido aqui, numa janela local da app, nunca pela página.
 const dispositivo = criarDispositivo({
   // A instalada fala sempre com produção; o endereço só muda a partir do código (como o painel em autorizacao-painel).
   api: criarApi({ baseUrl: (!app.isPackaged && process.env.BCI_API_URL) || API_CONFIG.API_URL, lerToken: lerTokenDoAdmin, guardarToken: (token) => ElectronStorage.setItem('admin-token', token) }),
@@ -29,7 +30,11 @@ const dispositivo = criarDispositivo({
   storage: ElectronStorage,
   safeStorage,
   app,
-  dialog,
+  pedirConsentimento: (pedido) => pedirConsentimento(pedido, {
+    BrowserWindow,
+    ipcMain,
+    janelaPai: () => (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow : null)
+  }),
   tray: { setOperacoes: (ligado) => tray.setOperacoes(ligado) },
   versoes: { so: `${process.platform} ${os.release()}`, electron: process.versions.electron },
   randomUUID: () => crypto.randomUUID(),
