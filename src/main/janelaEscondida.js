@@ -54,11 +54,12 @@ function protegerConteudo(wc) {
 const hostPermitido = (url, hosts) => {
   try {
     const u = new URL(url);
-    return u.protocol === 'https:' && hosts.includes(u.hostname);
+    // O próprio host ou um subdomínio; nunca includes, que deixava passar safecharge.com.evil.example.
+    return u.protocol === 'https:' && hosts.some(h => u.hostname === h || u.hostname.endsWith(`.${h}`));
   } catch (e) { return false; }
 };
 
-/** { driver, fechar() } para a conta; nada de preload, só https e janelas novas só para os hostsExtra do caixa. */
+/** { driver, fechar() } para a conta; nada de preload, só https e janelas novas só para os hostsExtra do caixa (e subdomínios). */
 function criarJanela(accountId, deps, { hostsExtra = [] } = {}) {
   const { BrowserWindow } = deps;
   const esperar = deps.esperar || ((ms) => new Promise(r => setTimeout(r, ms)));

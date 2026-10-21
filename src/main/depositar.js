@@ -23,10 +23,13 @@ function codigoDoDeposito(parametros) {
   return String(parametros?.codigo ?? '').trim().slice(0, 60);
 }
 
-/** Hosts onde o caixa pode abrir a janela da referência: o próprio caixa (abre-a em review.do) e os hostsExtra. */
+/** Onde o caixa pode abrir a janela da referência: o domínio do caixa (e subdomínios) e os hostsExtra. */
 function hostsExtraDe(casino) {
   const cfg = C.CASINOS[casino]?.depositar;
-  return [...new Set([cfg?.caixaHost, ...(cfg?.hostsExtra || [])].filter(Boolean))];
+  // secure.safecharge.com → safecharge.com: o caixa abre review.do e a referência vem noutro subdomínio (cdn).
+  const dominio = cfg?.caixaHost?.split('.').length > 2 ? cfg.caixaHost.split('.').slice(1).join('.') : cfg?.caixaHost;
+  const hosts = [dominio, ...(cfg?.hostsExtra || [])].filter(Boolean);
+  return [...new Set(hosts)].filter((h, _i, todos) => !todos.some(o => o !== h && h.endsWith(`.${o}`)));
 }
 
 /**

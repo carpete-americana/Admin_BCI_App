@@ -206,6 +206,17 @@ test('janela nova: só https e só os hosts exatos de hostsExtra, com as mesmas 
   assert.ok(!('preload' in r.overrideBrowserWindowOptions.webPreferences));
 });
 
+test('um domínio em hostsExtra aceita os subdomínios, nunca nomes parecidos nem http', () => {
+  const { BrowserWindow, estado } = electronFalso();
+  criarJanela(7, { BrowserWindow }, { hostsExtra: ['safecharge.com'] });
+  for (const url of ['https://secure.safecharge.com/ppp/review.do', 'https://cdn.safecharge.com/x/sibs.html', 'https://safecharge.com/']) {
+    assert.equal(estado.abrir({ url }).action, 'allow', url);
+  }
+  for (const url of ['https://evilsafecharge.com/', 'https://safecharge.com.evil.example/', 'http://secure.safecharge.com/']) {
+    assert.deepEqual(estado.abrir({ url }), { action: 'deny' }, url);
+  }
+});
+
 test('sem hostsExtra, todas as janelas novas são negadas (fase 3)', () => {
   const { BrowserWindow, estado } = electronFalso();
   criarJanela(7, { BrowserWindow });
