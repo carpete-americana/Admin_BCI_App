@@ -1,7 +1,7 @@
 require('dotenv').config();
 const os = require('os');
 const crypto = require('crypto');
-const { app, globalShortcut, ipcMain, BrowserWindow, safeStorage } = require('electron');
+const { app, globalShortcut, ipcMain, BrowserWindow, safeStorage, session } = require('electron');
 const ElectronStorage = require('../../js/storage');
 const { DEBUG, API_CONFIG } = require('./config');
 const cache = require('./cache');
@@ -16,6 +16,9 @@ const assets = require('./assets');
 const { criarDispositivo } = require('./dispositivo');
 const { pedirConsentimento } = require('./consentimentoJanela');
 const { criarApi } = require('./apiDados');
+const { criarExecutorReal } = require('./executorReal');
+const { criarJanela, limparParticoes } = require('./janelaEscondida');
+const { levantarDaConta } = require('./levantar');
 
 const lerTokenDoAdmin = async () => {
   const valor = await ElectronStorage.getItem('admin-token');
@@ -23,9 +26,19 @@ const lerTokenDoAdmin = async () => {
 };
 
 // Operações automáticas neste computador: o consentimento é pedido aqui, numa janela local da app, nunca pela página.
+// A instalada fala sempre com produção; o endereço só muda a partir do código (como o painel em autorizacao-painel).
+const apiDados = criarApi({ baseUrl: (!app.isPackaged && process.env.BCI_API_URL) || API_CONFIG.API_URL, lerToken: lerTokenDoAdmin, guardarToken: (token) => ElectronStorage.setItem('admin-token', token) });
+const particoes = { session, userData: app.getPath('userData') };
+
 const dispositivo = criarDispositivo({
-  // A instalada fala sempre com produção; o endereço só muda a partir do código (como o painel em autorizacao-painel).
-  api: criarApi({ baseUrl: (!app.isPackaged && process.env.BCI_API_URL) || API_CONFIG.API_URL, lerToken: lerTokenDoAdmin, guardarToken: (token) => ElectronStorage.setItem('admin-token', token) }),
+  api: apiDados,
+  executorReal: criarExecutorReal({
+    api: apiDados,
+    raiz: (deviceId) => `/users/me/devices/${deviceId}`,
+    criarJanela: (accountId) => criarJanela(accountId, { BrowserWindow }),
+    levantar: levantarDaConta
+  }),
+  limparParticoes: () => limparParticoes(particoes),
   lerToken: lerTokenDoAdmin,
   storage: ElectronStorage,
   safeStorage,
@@ -242,6 +255,8 @@ app.on('before-quit', (evento) => {
   if (!aSair && dispositivo.ocupado()) {
     evento.preventDefault();
     aSair = true;
+    // A espera pode durar minutos: a app some em vez de ficar parada no ecrã.
+    BrowserWindow.getAllWindows().forEach(w => { if (!w.isDestroyed()) w.hide(); });
     dispositivo.terminar().catch(() => {}).finally(() => app.quit());
     return;
   }

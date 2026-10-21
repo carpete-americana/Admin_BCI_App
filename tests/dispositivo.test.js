@@ -1,9 +1,6 @@
 'use strict';
 
-/**
- * Núcleo das operações automáticas na Admin App. O módulo é o mesmo da User App, que tem a suíte completa
- * (tests/dispositivo.test.js lá); aqui ficam os comportamentos que não podem divergir.
- */
+/** Núcleo das operações automáticas: consentimento, chave, registo, sinal e arranque. Tudo por dependências falsas. */
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -12,9 +9,13 @@ const crypto = require('node:crypto');
 const D = require('../src/main/dispositivo');
 const { VERSAO_TEXTO } = require('../src/main/dispositivo-texto');
 
+/** JWT sem assinatura, só para o userIdDoToken. */
 const token = (id) => `x.${Buffer.from(JSON.stringify({ id })).toString('base64url')}.y`;
 
-function cenario({ userId = 3, resposta = 0, ativo = true, versaoServidor = VERSAO_TEXTO, rotas = {}, extra = {} } = {}) {
+/**
+ * Cenário: `rotas` responde a "MÉTODO caminho" com { status, corpo } (ou lança); regista tudo o que se passou.
+ */
+function cenario({ userId = 7, ativo = true, versaoServidor = VERSAO_TEXTO, resposta = 0, cifra = true, rotas = {}, extra = {} } = {}) {
   const chamadas = [];
   const guardado = new Map();
   const arranque = [];
@@ -22,65 +23,186 @@ function cenario({ userId = 3, resposta = 0, ativo = true, versaoServidor = VERS
   const caixas = [];
   let sessao = userId == null ? null : token(userId);
   let tique = null;
+
   const responder = async (metodo, caminho, corpo) => {
     chamadas.push({ metodo, caminho, corpo });
     const chave = `${metodo} ${caminho.replace(/[0-9a-f]{8}-[0-9a-f-]{27}/, ':id')}`;
-    if (rotas[chave] instanceof Error) throw rotas[chave];
-    if (rotas[chave]) return typeof rotas[chave] === 'function' ? rotas[chave](corpo) : rotas[chave];
+    const r = rotas[chave];
+    if (r instanceof Error) throw r;
+    if (r) return typeof r === 'function' ? r(corpo) : r;
     if (chave === 'GET /users/me/devices/config') return { status: 200, corpo: { result: { data: { ativo, versaoConsentimento: versaoServidor } } } };
-    if (chave === 'POST /users/me/devices') return { status: 200, corpo: {} };
+    if (chave === 'POST /users/me/devices') return { status: 200, corpo: { result: { data: { dispositivo: {} } } } };
     if (chave === 'POST /users/me/devices/:id/sinal') return { status: 200, corpo: { result: { data: { consentimentoValido: true } } } };
     if (chave === 'DELETE /users/me/devices/:id') return { status: 200, corpo: {} };
     return { status: 404, corpo: {} };
   };
-  const d = D.criarDispositivo({
+
+  const deps = {
     api: { get: (c) => responder('GET', c), post: (c, b) => responder('POST', c, b), del: (c) => responder('DELETE', c) },
     lerToken: () => sessao,
-    storage: { getItem: (k) => guardado.get(k) ?? null, setItem: (k, v) => { guardado.set(k, JSON.parse(JSON.stringify(v))); }, removeItem: (k) => { guardado.delete(k); } },
-    safeStorage: { isEncryptionAvailable: () => true, encryptString: (s) => Buffer.from(`c:${s}`), decryptString: (b) => b.toString() },
-    app: { setLoginItemSettings: (o) => arranque.push(o), getVersion: () => '1.2.0' },
+    storage: {
+      getItem: (k) => guardado.get(k) ?? null,
+      setItem: (k, v) => { guardado.set(k, JSON.parse(JSON.stringify(v))); },
+      removeItem: (k) => { guardado.delete(k); }
+    },
+    safeStorage: {
+      isEncryptionAvailable: () => cifra,
+      encryptString: (s) => Buffer.from(`cifrado:${s}`),
+      decryptString: (b) => b.toString().replace(/^cifrado:/, '')
+    },
+    app: { setLoginItemSettings: (o) => arranque.push(o), getVersion: () => '2.2.0' },
     pedirConsentimento: async (o) => { caixas.push(o); return resposta === 0; },
     tray: { setOperacoes: (v) => tray.push(v) },
-    versoes: { so: 'win32 10.0', electron: '44.4.5' },
+    versoes: { so: 'win32 10.0.26300', electron: '44.4.5' },
     randomUUID: () => crypto.randomUUID(),
     setTimeoutFn: (fn, ms) => { tique = { fn, ms }; return 1; },
     clearTimeoutFn: () => { tique = null; },
     maquinaId: async () => 'f'.repeat(64),
     ...extra
-  });
-  return { d, chamadas, guardado, arranque, tray, caixas, tique: () => tique, sairDaSessao: () => { sessao = null; }, entrarComo: (id) => { sessao = token(id); } };
+  };
+  return {
+    d: D.criarDispositivo(deps), chamadas, guardado, arranque, tray, caixas,
+    tique: () => tique, sairDaSessao: () => { sessao = null; }, entrarComo: (id) => { sessao = token(id); },
+    posts: () => chamadas.filter(c => c.metodo === 'POST')
+  };
 }
 
-test('nada é registado antes de aceitar; «Cancelar» não chama a API', async () => {
+test('gerarParDeChaves dá 32 bytes e a pública corresponde à privada', () => {
+  const { publica, privada } = D.gerarParDeChaves();
+  assert.equal(Buffer.from(publica, 'base64').length, 32);
+  assert.equal(Buffer.from(privada, 'base64').length, 32);
+  const pkcs8 = Buffer.concat([Buffer.from('302e020100300506032b656e04220420', 'hex'), Buffer.from(privada, 'base64')]);
+  const derivada = crypto.createPublicKey(crypto.createPrivateKey({ key: pkcs8, format: 'der', type: 'pkcs8' }))
+    .export({ type: 'spki', format: 'der' }).subarray(-32).toString('base64');
+  assert.equal(derivada, publica);
+});
+
+test('userIdDoToken lê o id e aguenta lixo', () => {
+  assert.equal(D.userIdDoToken(token(42)), 42);
+  for (const mau of [null, undefined, '', 'abc', 'a.b.c', `x.${Buffer.from('{}').toString('base64url')}.y`, 42]) {
+    assert.equal(D.userIdDoToken(mau), null, String(mau));
+  }
+});
+
+test('estado() sem consentimento não regista nada: só pergunta a configuração', async () => {
+  const c = cenario();
+  const e = await c.d.estado();
+  assert.deepEqual(e, { disponivel: true, consentido: false, autostart: false, versaoConsentimento: VERSAO_TEXTO });
+  assert.equal(c.posts().length, 0, 'nada recolhido antes de aceitar');
+  assert.equal(c.guardado.size, 0);
+});
+
+test('estado() sem sessão ou com a funcionalidade desligada diz indisponível', async () => {
+  assert.equal((await cenario({ userId: null }).d.estado()).disponivel, false);
+  assert.equal((await cenario({ ativo: false }).d.estado()).disponivel, false);
+});
+
+test('aceitar com «Cancelar» não chama a API nem guarda nada', async () => {
   const c = cenario({ resposta: 1 });
-  assert.equal((await c.d.estado()).consentido, false);
   assert.deepEqual(await c.d.aceitar(), { ok: false, motivo: 'cancelado' });
-  assert.equal(c.chamadas.filter(x => x.metodo === 'POST').length, 0);
+  assert.equal(c.posts().length, 0);
+  assert.equal(c.guardado.size, 0);
   assert.equal(c.arranque.length, 0);
 });
 
-test('aceitar regista o dispositivo, liga o arranque oculto e o tray', async () => {
+test('aceitar com «Aceito» regista, guarda a chave privada cifrada, liga o arranque e o tray', async () => {
   const c = cenario();
   assert.deepEqual(await c.d.aceitar(), { ok: true });
-  const post = c.chamadas.find(x => x.metodo === 'POST');
+  assert.equal(c.caixas.length, 1);
+  assert.deepEqual(c.caixas[0].botoes, ['Aceito', 'Cancelar']);
+  assert.equal(c.caixas[0].modo, 'pedido');
+  const [post] = c.posts();
+  assert.equal(post.caminho, '/users/me/devices');
+  assert.match(post.corpo.deviceId, /^[0-9a-f-]{36}$/);
   assert.equal(Buffer.from(post.corpo.chavePublica, 'base64').length, 32);
-  assert.equal(post.corpo.versao, VERSAO_TEXTO);
+  assert.deepEqual({ so: post.corpo.so, appVersao: post.corpo.appVersao, electronVersao: post.corpo.electronVersao, autostart: post.corpo.autostart, versao: post.corpo.versao },
+    { so: 'win32 10.0.26300', appVersao: '2.2.0', electronVersao: '44.4.5', autostart: true, versao: VERSAO_TEXTO });
+  const reg = c.guardado.get('dispositivo:7');
+  assert.equal(reg.consentido, true);
+  assert.match(reg.privadaCifrada, /^[A-Za-z0-9+/=]+$/);
+  assert.ok(!JSON.stringify(reg).includes(post.corpo.chavePublica) || reg.chavePublica === post.corpo.chavePublica);
   assert.deepEqual(c.arranque.at(-1), { openAtLogin: true, args: ['--oculto'] });
   assert.equal(c.tray.at(-1), true);
 });
 
-test('o servidor dizer que o consentimento deixou de valer desliga tudo', async () => {
-  const c = cenario({ rotas: { 'POST /users/me/devices/:id/sinal': { status: 200, corpo: { result: { data: { consentimentoValido: false } } } } } });
+test('sem cifra do sistema não aceita', async () => {
+  const c = cenario({ cifra: false });
+  assert.deepEqual(await c.d.aceitar(), { ok: false, motivo: 'sem-cifra' });
+  assert.equal(c.caixas.length, 0, 'nem sequer mostra o diálogo');
+  assert.equal(c.posts().length, 0);
+});
+
+test('o texto da app tem de ser a versão que o servidor espera', async () => {
+  const c = cenario({ versaoServidor: VERSAO_TEXTO + 1 });
+  assert.deepEqual(await c.d.aceitar(), { ok: false, motivo: 'app-desatualizada' });
+  assert.equal(c.caixas.length, 0);
+  assert.equal(c.posts().length, 0);
+});
+
+test('falha de rede ao aceitar: nada fica guardado como consentido', async () => {
+  const c = cenario({ rotas: { 'POST /users/me/devices': new Error('ECONNRESET') } });
+  assert.deepEqual(await c.d.aceitar(), { ok: false, motivo: 'rede' });
+  assert.equal(c.guardado.get('dispositivo:7')?.consentido ?? false, false);
+  assert.equal(c.arranque.length, 0);
+  assert.equal(c.tray.at(-1) ?? false, false);
+});
+
+test('o servidor recusar o registo (409) não deixa consentimento local', async () => {
+  const c = cenario({ rotas: { 'POST /users/me/devices': { status: 409, corpo: {} } } });
+  assert.deepEqual(await c.d.aceitar(), { ok: false, motivo: 'versao' });
+  assert.equal(c.guardado.get('dispositivo:7')?.consentido ?? false, false);
+});
+
+test('iniciar() agenda o sinal de 2 em 2 minutos e cada sinal vai ao dispositivo certo', async () => {
+  const c = cenario();
   await c.d.aceitar();
   c.d.iniciar();
   assert.equal(c.tique().ms, 120000);
   await c.tique().fn();
-  assert.equal(c.guardado.get('dispositivo:3').consentido, false);
+  const sinais = c.posts().filter(p => /sinal$/.test(p.caminho));
+  assert.equal(sinais.length >= 1, true);
+  const id = c.guardado.get('dispositivo:7').deviceId;
+  assert.equal(sinais.at(-1).caminho, `/users/me/devices/${id}/sinal`);
+  assert.deepEqual(sinais.at(-1).corpo, { appVersao: '2.2.0', electronVersao: '44.4.5', autostart: true, capacidades: ['tarefas-v1', 'pacotes-v1', 'levantar-v1'], maquinaId: 'f'.repeat(64), estado: { pc: 'livre' } });
+  c.d.parar();
+  assert.equal(c.tique(), null);
+});
+
+test('sem consentimento o sinal não faz pedidos', async () => {
+  const c = cenario();
+  c.d.iniciar();
+  await c.tique().fn();
+  assert.equal(c.chamadas.length, 0);
+});
+
+test('consentimentoValido:false desliga o consentimento local, o arranque e o tray', async () => {
+  const c = cenario({ rotas: { 'POST /users/me/devices/:id/sinal': { status: 200, corpo: { result: { data: { consentimentoValido: false } } } } } });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  assert.equal(c.guardado.get('dispositivo:7').consentido, false);
   assert.deepEqual(c.arranque.at(-1), { openAtLogin: false, args: [] });
   assert.equal(c.tray.at(-1), false);
 });
 
-test('sem sessão não há pedidos; o logout desliga o arranque sem revogar', async () => {
+test('404 no sinal (o servidor não conhece o dispositivo) também desliga o consentimento local', async () => {
+  const c = cenario({ rotas: { 'POST /users/me/devices/:id/sinal': { status: 404, corpo: {} } } });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  assert.equal(c.guardado.get('dispositivo:7').consentido, false);
+  assert.deepEqual(c.arranque.at(-1), { openAtLogin: false, args: [] });
+});
+
+test('401 no sinal (sem sessão válida) não lança nem muda o consentimento', async () => {
+  const c = cenario({ rotas: { 'POST /users/me/devices/:id/sinal': { status: 401, corpo: {} } } });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await assert.doesNotReject(c.tique().fn());
+  assert.equal(c.guardado.get('dispositivo:7').consentido, true);
+});
+
+test('sem token (logout) não faz pedidos', async () => {
   const c = cenario();
   await c.d.aceitar();
   c.d.iniciar();
@@ -88,32 +210,96 @@ test('sem sessão não há pedidos; o logout desliga o arranque sem revogar', as
   c.chamadas.length = 0;
   await c.tique().fn();
   assert.equal(c.chamadas.length, 0);
-  c.d.aoTerminarSessao();
-  assert.deepEqual(c.arranque.at(-1), { openAtLogin: false, args: [] });
-  assert.equal(c.guardado.get('dispositivo:3').consentido, true);
 });
 
-test('revogar faz DELETE, desliga o arranque e guarda o deviceId para um novo consentimento', async () => {
+test('aoTerminarSessao desliga o arranque sem revogar o consentimento', async () => {
   const c = cenario();
   await c.d.aceitar();
-  const id = c.guardado.get('dispositivo:3').deviceId;
+  c.d.aoTerminarSessao();
+  assert.deepEqual(c.arranque.at(-1), { openAtLogin: false, args: [] });
+  assert.equal(c.tray.at(-1), false);
+  assert.equal(c.guardado.get('dispositivo:7').consentido, true, 'volta a valer no próximo login');
+  assert.equal(c.chamadas.some(x => x.metodo === 'DELETE'), false);
+});
+
+test('outro utilizador no mesmo PC gera outro deviceId e não herda o consentimento', async () => {
+  const c = cenario({ userId: 7 });
+  await c.d.aceitar();
+  const primeiro = c.guardado.get('dispositivo:7').deviceId;
+  c.entrarComo(8);
+  const e = await c.d.estado();
+  assert.equal(e.consentido, false);
+  await c.d.aceitar();
+  const segundo = c.guardado.get('dispositivo:8').deviceId;
+  assert.notEqual(primeiro, segundo);
+  assert.equal(c.guardado.get('dispositivo:7').consentido, true);
+});
+
+test('definirArranque(false) guarda a preferência e desliga openAtLogin; (true) volta a ligar', async () => {
+  const c = cenario();
+  await c.d.aceitar();
+  assert.deepEqual(await c.d.definirArranque(false), { ok: true });
+  assert.equal(c.guardado.get('dispositivo:7').autostart, false);
+  assert.deepEqual(c.arranque.at(-1), { openAtLogin: false, args: [] });
+  assert.deepEqual(await c.d.definirArranque(true), { ok: true });
+  assert.deepEqual(c.arranque.at(-1), { openAtLogin: true, args: ['--oculto'] });
+});
+
+test('definirArranque sem consentimento recusa', async () => {
+  const c = cenario();
+  assert.deepEqual(await c.d.definirArranque(true), { ok: false });
+  assert.equal(c.arranque.length, 0);
+});
+
+test('revogar faz DELETE, limpa o consentimento e desliga o arranque e o tray', async () => {
+  const c = cenario();
+  await c.d.aceitar();
+  const id = c.guardado.get('dispositivo:7').deviceId;
   assert.deepEqual(await c.d.revogar(), { ok: true });
   assert.ok(c.chamadas.some(x => x.metodo === 'DELETE' && x.caminho === `/users/me/devices/${id}`));
-  assert.equal(c.guardado.get('dispositivo:3').consentido, false);
-  assert.equal(c.guardado.get('dispositivo:3').deviceId, id);
+  assert.equal(c.guardado.get('dispositivo:7').consentido, false);
   assert.deepEqual(c.arranque.at(-1), { openAtLogin: false, args: [] });
   assert.equal(c.tray.at(-1), false);
 });
 
-test('arrancarOculto só com --oculto', () => {
-  assert.equal(D.arrancarOculto(['BCI.exe', '--oculto']), true);
-  assert.equal(D.arrancarOculto(['BCI.exe']), false);
+test('revogar sem rede desliga já localmente e repete o DELETE no sinal seguinte', async () => {
+  let rede = false;
+  const c = cenario({ rotas: { 'DELETE /users/me/devices/:id': () => { if (!rede) throw new Error('offline'); return { status: 200, corpo: {} }; } } });
+  await c.d.aceitar();
+  c.d.iniciar();
+  assert.deepEqual(await c.d.revogar(), { ok: true });
+  assert.equal(c.guardado.get('dispositivo:7').consentido, false);
+  rede = true;
+  c.chamadas.length = 0;
+  await c.tique().fn();
+  assert.ok(c.chamadas.some(x => x.metodo === 'DELETE'), 'repetiu o DELETE pendente');
+  assert.equal(c.guardado.get('dispositivo:7').revogarPendente, false);
+});
+
+test('aceitar outra vez depois de revogar reutiliza a mesma chave e o mesmo deviceId', async () => {
+  const c = cenario();
+  await c.d.aceitar();
+  const antes = c.guardado.get('dispositivo:7');
+  await c.d.revogar();
+  await c.d.aceitar();
+  const depois = c.guardado.get('dispositivo:7');
+  assert.equal(depois.deviceId, antes.deviceId);
+  assert.equal(depois.chavePublica, antes.chavePublica);
+  assert.equal(depois.consentido, true);
+});
+
+test('arrancarOculto só com o argumento --oculto', () => {
+  assert.equal(D.arrancarOculto(['C:\BCI.exe', '--oculto']), true);
+  assert.equal(D.arrancarOculto(['C:\BCI.exe']), false);
+  assert.equal(D.arrancarOculto([]), false);
   assert.equal(D.arrancarOculto(undefined), false);
+  assert.equal(D.arrancarOculto(['--ocultox']), false);
 });
 
 const invalido = (motivo) => ({ status: 200, corpo: { result: { data: { consentimentoValido: false, motivo } } } });
+const valido = { status: 200, corpo: { result: { data: { consentimentoValido: true } } } };
 
-test('os sinais válidos não reescrevem o arranque do Windows', async () => {
+test('os sinais válidos não reescrevem o arranque do Windows (o cliente pode tê-lo desligado lá)', async () => {
   const c = cenario();
   await c.d.aceitar();
   const antes = c.arranque.length;
@@ -123,45 +309,66 @@ test('os sinais válidos não reescrevem o arranque do Windows', async () => {
   assert.equal(c.arranque.length, antes);
 });
 
-test('«desligado» suspende o arranque e o tray mas mantém o consentimento', async () => {
-  const c = cenario({ rotas: { 'POST /users/me/devices/:id/sinal': invalido('desligado') } });
+test('«desligado» ou «conta» suspendem o arranque e o tray mas mantêm o consentimento, e voltam sozinhos', async () => {
+  let resposta = invalido('desligado');
+  const c = cenario({ rotas: { 'POST /users/me/devices/:id/sinal': () => resposta } });
   await c.d.aceitar();
   c.d.iniciar();
   await c.tique().fn();
-  assert.equal(c.guardado.get('dispositivo:3').consentido, true);
+  assert.equal(c.guardado.get('dispositivo:7').consentido, true, 'o consentimento fica');
   assert.deepEqual(c.arranque.at(-1), { openAtLogin: false, args: [] });
   assert.equal(c.tray.at(-1), false);
+
+  const n = c.arranque.length;
+  await c.tique().fn();
+  assert.equal(c.arranque.length, n, 'não repete o desligar a cada sinal');
+
+  resposta = valido;
+  await c.tique().fn();
+  assert.deepEqual(c.arranque.at(-1), { openAtLogin: true, args: ['--oculto'] });
+  assert.equal(c.tray.at(-1), true);
+  const m = c.arranque.length;
+  await c.tique().fn();
+  assert.equal(c.arranque.length, m, 'só restaura uma vez');
 });
 
-test('«versao» e «revogado» apagam o consentimento local', async () => {
+test('«versao» e «revogado» apagam o consentimento local de vez', async () => {
   for (const motivo of ['versao', 'revogado']) {
     const c = cenario({ rotas: { 'POST /users/me/devices/:id/sinal': invalido(motivo) } });
     await c.d.aceitar();
     c.d.iniciar();
     await c.tique().fn();
-    assert.equal(c.guardado.get('dispositivo:3').consentido, false, motivo);
+    assert.equal(c.guardado.get('dispositivo:7').consentido, false, motivo);
   }
 });
 
-test('401 e 403 no sinal desligam o arranque e o tray sem revogar', async () => {
+test('401 ou 403 no sinal são fim de sessão: desliga o arranque e o tray sem revogar, e restaura quando volta a valer', async () => {
   for (const estado of [401, 403]) {
-    const c = cenario({ rotas: { 'POST /users/me/devices/:id/sinal': { status: estado, corpo: {} } } });
+    let resposta = { status: estado, corpo: {} };
+    const c = cenario({ rotas: { 'POST /users/me/devices/:id/sinal': () => resposta } });
     await c.d.aceitar();
     c.d.iniciar();
     await c.tique().fn();
     assert.deepEqual(c.arranque.at(-1), { openAtLogin: false, args: [] }, String(estado));
     assert.equal(c.tray.at(-1), false);
-    assert.equal(c.guardado.get('dispositivo:3').consentido, true);
+    assert.equal(c.guardado.get('dispositivo:7').consentido, true, 'não revoga');
     assert.equal(c.chamadas.some(x => x.metodo === 'DELETE'), false);
+    const n = c.arranque.length;
+    await c.tique().fn();
+    assert.equal(c.arranque.length, n, 'não repete');
+    resposta = valido;
+    await c.tique().fn();
+    assert.deepEqual(c.arranque.at(-1), { openAtLogin: true, args: ['--oculto'] });
   }
 });
 
-test('a revogação fica pendente sempre que o servidor não a confirmou', async () => {
-  for (const [estado, pendente] of [[401, true], [500, true], [200, false], [404, false]]) {
+test('a revogação fica pendente sempre que o servidor não a confirmou (não só nos 5xx)', async () => {
+  for (const [estado, pendente] of [[401, true], [429, true], [500, true], [200, false], [404, false]]) {
     const c = cenario({ rotas: { 'DELETE /users/me/devices/:id': { status: estado, corpo: {} } } });
     await c.d.aceitar();
     await c.d.revogar();
-    assert.equal(c.guardado.get('dispositivo:3').revogarPendente, pendente, String(estado));
+    assert.equal(c.guardado.get('dispositivo:7').revogarPendente, pendente, String(estado));
+    assert.equal(c.guardado.get('dispositivo:7').consentido, false);
   }
 });
 
@@ -183,12 +390,12 @@ const semEspera = { esperar: async () => {}, aleatorio: () => 0, registar: () =>
 test('o registo e o sinal declaram tarefas e pacotes, e levam o identificador cifrado da máquina', async () => {
   const c = cenario({ extra: semEspera });
   await c.d.aceitar();
-  assert.deepEqual(c.chamadas.filter(x => x.metodo === 'POST')[0].corpo.capacidades, ['tarefas-v1', 'pacotes-v1']);
-  assert.equal(c.chamadas.filter(x => x.metodo === 'POST')[0].corpo.maquinaId, 'f'.repeat(64));
+  assert.deepEqual(c.posts()[0].corpo.capacidades, ['tarefas-v1', 'pacotes-v1', 'levantar-v1']);
+  assert.equal(c.posts()[0].corpo.maquinaId, 'f'.repeat(64));
   c.d.iniciar();
   await c.tique().fn();
-  const s = c.chamadas.filter(x => x.metodo === 'POST').filter(p => /sinal$/.test(p.caminho)).at(-1).corpo;
-  assert.deepEqual(s.capacidades, ['tarefas-v1', 'pacotes-v1']);
+  const s = c.posts().filter(p => /sinal$/.test(p.caminho)).at(-1).corpo;
+  assert.deepEqual(s.capacidades, ['tarefas-v1', 'pacotes-v1', 'levantar-v1']);
   assert.equal(s.maquinaId, 'f'.repeat(64));
   assert.deepEqual(s.estado, { pc: 'livre' });
 });
@@ -201,9 +408,9 @@ test('com o consentimento do texto v1 o sinal não leva o identificador da máqu
   c.guardado.set(chave, { ...c.guardado.get(chave), versao: 1 });
   c.d.iniciar();
   await c.tique().fn();
-  const s = c.chamadas.filter(x => x.metodo === 'POST').filter(p => /sinal$/.test(p.caminho)).at(-1).corpo;
+  const s = c.posts().filter(p => /sinal$/.test(p.caminho)).at(-1).corpo;
   assert.equal('maquinaId' in s, false);
-  assert.deepEqual(s.capacidades, ['tarefas-v1', 'pacotes-v1']);
+  assert.deepEqual(s.capacidades, ['tarefas-v1', 'pacotes-v1', 'levantar-v1']);
 });
 
 test('tarefa simulada no sinal: inicia e conclui pelas rotas da tarefa', async () => {
@@ -214,7 +421,7 @@ test('tarefa simulada no sinal: inicia e conclui pelas rotas da tarefa', async (
   await c.tique().fn();
   await c.d.aguardarTarefa();
   assert.deepEqual(registo, ['iniciar', ['concluir', { estado: 'feita', resultado: { simulado: true, motivo: 'Simulação' } }]]);
-  const id = c.guardado.get('dispositivo:3').deviceId;
+  const id = c.guardado.get('dispositivo:7').deviceId;
   assert.ok(c.chamadas.some(x => x.caminho === `/users/me/devices/${id}/tarefas/31/iniciar`));
 });
 
@@ -414,16 +621,16 @@ test('ligada e sem resposta: o aviso leva ao diálogo de consentimento e regista
   const r = await c.d.perguntarSeFaltar();
   assert.equal(r.mostrado, true);
   assert.deepEqual(c.caixas.map(x => x.botoes), [AVISO.botoes, ['Aceito', 'Cancelar']]);
-  assert.equal(c.guardado.get('dispositivo:3').consentido, true);
-  assert.equal(c.chamadas.filter(x => x.metodo === 'POST').length, 1, 'regista só depois do «Aceito»');
+  assert.equal(c.guardado.get('dispositivo:7').consentido, true);
+  assert.equal(c.posts().length, 1, 'regista só depois do «Aceito»');
 });
 
 test('«Agora não» não abre o pedido nem regista, e não volta a perguntar no mesmo dia', async () => {
   const c = cenario({ resposta: 1 });
   assert.equal((await c.d.perguntarSeFaltar()).mostrado, true);
   assert.equal(c.caixas.length, 1);
-  assert.equal(c.chamadas.filter(x => x.metodo === 'POST').length, 0);
-  assert.equal(c.guardado.get('dispositivo:3').consentido ?? false, false);
+  assert.equal(c.posts().length, 0);
+  assert.equal(c.guardado.get('dispositivo:7').consentido ?? false, false);
   assert.equal((await c.d.perguntarSeFaltar()).mostrado, false);
   assert.equal(c.caixas.length, 1);
 });
@@ -435,21 +642,21 @@ test('«Agora não» grava o dia de hoje e só volta a perguntar no dia seguinte
   let agora = dia(2026, 10, 21);
   const c = cenario({ resposta: 1, extra: { agora: () => agora } });
   assert.equal((await c.d.perguntarSeFaltar()).mostrado, true);
-  assert.equal(c.guardado.get('dispositivo:3').perguntadoEm, '2026-10-21');
+  assert.equal(c.guardado.get('dispositivo:7').perguntadoEm, '2026-10-21');
   agora = dia(2026, 10, 21, 23);
   assert.equal((await c.d.perguntarSeFaltar()).mostrado, false, 'no mesmo dia');
   assert.equal(c.caixas.length, 1);
   agora = dia(2026, 10, 22, 0);
   assert.equal((await c.d.perguntarSeFaltar()).mostrado, true, 'no dia seguinte');
   assert.equal(c.caixas.length, 2);
-  assert.equal(c.guardado.get('dispositivo:3').perguntadoEm, '2026-10-22');
+  assert.equal(c.guardado.get('dispositivo:7').perguntadoEm, '2026-10-22');
 });
 
 test('quem revogou volta a ver o pedido no dia seguinte', async () => {
   let agora = dia(2026, 10, 21);
   const c = cenario({ resposta: 1, extra: { agora: () => agora } });
   // Como fica o registo depois de revogar: a chave e o deviceId mantêm-se, o consentimento não.
-  c.guardado.set('dispositivo:3', { deviceId: 'x', consentido: false, versao: VERSAO_TEXTO, revogarPendente: false });
+  c.guardado.set('dispositivo:7', { deviceId: 'x', consentido: false, versao: VERSAO_TEXTO, revogarPendente: false });
   assert.equal((await c.d.perguntarSeFaltar()).mostrado, true);
   c.caixas.length = 0;
   assert.equal((await c.d.perguntarSeFaltar()).mostrado, false);
@@ -466,6 +673,7 @@ test('o aviso e o pedido usam a janela do consentimento, com os textos certos', 
   assert.ok(c.caixas[0].texto.includes(AVISO.mensagem) && c.caixas[0].texto.includes(AVISO.detalhe));
   assert.equal(c.caixas[1].texto, TEXTO_CONSENTIMENTO);
 });
+
 test('já aceite nesta versão, funcionalidade desligada ou app desatualizada: não pergunta', async () => {
   const aceite = cenario();
   await aceite.d.aceitar();
@@ -570,14 +778,15 @@ test('o mesmo pacote no sinal seguinte não corre outra vez', async () => {
   assert.deepEqual(feitas, [1]);
 });
 
-test('conta não simulada: pára o pacote e larga o resto, sem iniciar nada', async () => {
+test('conta real sem executor real: pára o pacote e larga o resto, sem iniciar nada', async () => {
   const pacote = { pacoteId: 9, loteId: 5, pausaSeg: [0, 0], contas: [{ tarefaId: 1, simulada: false, parametros: {} }, ...contasSimuladas(2)] };
   const c = cenario({ rotas: comPacote(pacote), extra: semEspera });
   await c.d.aceitar();
   c.d.iniciar();
   await c.tique().fn();
   await c.d.aguardarTarefa();
-  assert.ok(c.chamadas.some(x => x.metodo === 'POST' && /^\/users\/me\/devices\/[0-9a-f-]{36}\/pacotes\/9\/largar$/.test(x.caminho)));
+  const id = c.guardado.get('dispositivo:7').deviceId;
+  assert.ok(c.chamadas.some(x => x.metodo === 'POST' && x.caminho === `/users/me/devices/${id}/pacotes/9/largar`));
   assert.ok(!c.chamadas.some(x => /\/iniciar$/.test(x.caminho)));
 });
 
@@ -650,4 +859,154 @@ test('terminar a meio de uma pausa não espera por ela', async () => {
   await c.d.terminar();
   assert.deepEqual(feitas, [1]);
   assert.ok(c.chamadas.some(x => /pacotes\/9\/largar$/.test(x.caminho)));
+});
+
+// ---------- contas reais ----------
+
+const contaReal = (tarefaId) => ({ tarefaId, simulada: false, casino: 'Placard', parametros: {} });
+const limiteFalso = () => {
+  const pedidos = [];
+  return { pedidos, aguardarLimite: (ms) => { pedidos.push(ms); return { p: new Promise(() => {}), cancelar: () => {} }; } };
+};
+
+test('no pacote, a conta real vai ao executor real e a simulada ao fictício', async () => {
+  const reais = [];
+  const simuladas = [];
+  const pacote = { pacoteId: 9, loteId: 5, pausaSeg: [0, 0], contas: [contaReal(1), ...contasSimuladas(2)] };
+  const c = cenario({
+    rotas: comPacote(pacote),
+    extra: {
+      ...semEspera,
+      executor: async (t, io) => { await io.iniciar(1); simuladas.push(t.tarefaId); await io.concluir('feita', {}); },
+      executorReal: async (t, io) => { await io.iniciar(1); reais.push(t.tarefaId); await io.concluir('feita', {}); }
+    }
+  });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  assert.deepEqual(reais, [1]);
+  assert.deepEqual(simuladas, [2]);
+  assert.equal(c.chamadas.filter(x => x.caminho.endsWith('/largar')).length, 0);
+});
+
+test('o executor real recebe o contexto com a privada decifrada, e ela não está na tarefa nem no io', async () => {
+  let visto;
+  const pacote = { pacoteId: 9, loteId: 5, pausaSeg: [0, 0], contas: [contaReal(1)] };
+  const c = cenario({
+    rotas: comPacote(pacote),
+    extra: { ...semEspera, executorReal: async (t, io, ctx) => { visto = { t, io, ctx, privada: await ctx.privada() }; await io.iniciar(1); await io.concluir('feita', {}); } }
+  });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  const id = c.guardado.get('dispositivo:7').deviceId;
+  assert.equal(visto.ctx.deviceId, id);
+  assert.equal(Buffer.from(visto.privada, 'base64').length, 32);
+  assert.ok(!JSON.stringify(visto.t).includes(visto.privada));
+  assert.ok(!c.guardado.get('dispositivo:7').privadaCifrada.includes(visto.privada));
+});
+
+test('terminar com uma conta real a decorrer espera até ao limite das reais e acaba quando ela acaba', async () => {
+  let soltar;
+  const limite = limiteFalso();
+  const pacote = { pacoteId: 9, loteId: 5, pausaSeg: [0, 0], contas: [contaReal(1), contaReal(2)] };
+  const c = cenario({
+    rotas: comPacote(pacote),
+    extra: { ...semEspera, aguardarLimite: limite.aguardarLimite, executorReal: async (t, io) => { await io.iniciar(1); await new Promise(r => { soltar = r; }); await io.concluir('feita', {}); } }
+  });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await new Promise(r => setImmediate(r));
+  const fim = c.d.terminar();
+  await new Promise(r => setImmediate(r));
+  assert.deepEqual(limite.pedidos, [10 * 60 * 1000]);
+  soltar();
+  await fim;
+  assert.equal(c.d.ocupado(), false);
+  assert.ok(c.chamadas.some(x => x.caminho.endsWith('/pacotes/9/largar')), 'a segunda real larga-se');
+});
+
+test('terminar com uma conta simulada continua nos 60 s', async () => {
+  let soltar;
+  const limite = limiteFalso();
+  const pacote = { pacoteId: 9, loteId: 5, pausaSeg: [0, 0], contas: contasSimuladas(1) };
+  const c = cenario({
+    rotas: comPacote(pacote),
+    extra: { ...semEspera, aguardarLimite: limite.aguardarLimite, executor: async (t, io) => { await io.iniciar(1); await new Promise(r => { soltar = r; }); await io.concluir('feita', {}); } }
+  });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await new Promise(r => setImmediate(r));
+  const fim = c.d.terminar();
+  await new Promise(r => setImmediate(r));
+  assert.deepEqual(limite.pedidos, [60 * 1000]);
+  soltar();
+  await fim;
+});
+
+test('terminar durante a pausa entre duas reais não começa a seguinte nem espera', async () => {
+  const reais = [];
+  const limite = limiteFalso();
+  const pacote = { pacoteId: 9, loteId: 5, pausaSeg: [100, 100], contas: [contaReal(1), contaReal(2)] };
+  const c = cenario({
+    rotas: comPacote(pacote),
+    extra: {
+      ...semEspera, aguardarLimite: limite.aguardarLimite, esperar: () => new Promise(() => {}),
+      executorReal: async (t, io) => { await io.iniciar(1); reais.push(t.tarefaId); await io.concluir('feita', {}); }
+    }
+  });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await new Promise(r => setImmediate(r));
+  await new Promise(r => setImmediate(r));
+  await c.d.terminar();
+  assert.deepEqual(reais, [1]);
+  assert.ok(c.chamadas.some(x => x.caminho.endsWith('/pacotes/9/largar')));
+  assert.ok(limite.pedidos.every(ms => ms === 60 * 1000), 'na pausa não é uma real a decorrer');
+});
+
+test('consentimento invalido no sinal e revogar() apagam os browsers das contas', async () => {
+  let apagados = 0;
+  const limparParticoes = async () => { apagados++; };
+  const c = cenario({
+    rotas: { 'POST /users/me/devices/:id/sinal': { status: 200, corpo: { result: { data: { consentimentoValido: false, motivo: 'revogado' } } } } },
+    extra: { ...semEspera, limparParticoes }
+  });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  assert.ok(apagados >= 1, 'sinal');
+  const antes = apagados;
+  await c.d.revogar();
+  assert.equal(apagados, antes + 1, 'revogar');
+});
+
+test('«desligado» e «conta» no sinal não apagam os browsers das contas (podem voltar)', async () => {
+  for (const motivo of ['desligado', 'conta']) {
+    let apagados = 0;
+    const c = cenario({
+      rotas: { 'POST /users/me/devices/:id/sinal': invalido(motivo) },
+      extra: { ...semEspera, limparParticoes: async () => { apagados++; } }
+    });
+    await c.d.aceitar();
+    c.d.iniciar();
+    await c.tique().fn();
+    await c.tique().fn();
+    assert.equal(apagados, 0, motivo);
+  }
+});
+
+test('uma falha ao apagar os browsers não impede a revogação', async () => {
+  const avisos = [];
+  const c = cenario({ extra: { ...semEspera, registar: (m) => avisos.push(m), limparParticoes: async () => { throw new Error('ocupado'); } } });
+  await c.d.aceitar();
+  const r = await c.d.revogar();
+  assert.equal(r.ok, true);
+  assert.equal(c.guardado.get('dispositivo:7').consentido, false);
+  assert.equal(avisos.length, 1);
 });

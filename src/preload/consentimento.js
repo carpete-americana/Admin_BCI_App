@@ -20,5 +20,6 @@ window.addEventListener('DOMContentLoaded', () => {
   recusar.textContent = q.get('recusar') || 'Agora não';
   aceitar.addEventListener('click', () => ipcRenderer.send('consentimento:responder', true));
   recusar.addEventListener('click', () => ipcRenderer.send('consentimento:responder', false));
-  aceitar.focus();
+  // No pedido, Enter não aceita: o foco fica em «Agora não».
+  (q.get('modo') === 'pedido' ? recusar : aceitar).focus();
 });

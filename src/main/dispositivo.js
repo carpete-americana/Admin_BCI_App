@@ -3,13 +3,14 @@
 /**
  * Operações automáticas neste computador: consentimento, chave do dispositivo, sinal, arranque com o Windows
  * e as tarefas simuladas que o servidor entrega na resposta do sinal: soltas (servidor antigo) ou em pacotes, conta a conta.
- * Igual ao da User App (repositórios separados, sem pacote partilhado): mudar um obriga a mudar o outro.
  * Sem `require('electron')`: tudo vem por dependências, para testar com node --test.
+ * Igual ao da User App (repositórios separados, sem pacote partilhado): mudar um obriga a mudar o outro.
  */
 
 const crypto = require('node:crypto');
 const { VERSAO_TEXTO, TITULO, TEXTO_CONSENTIMENTO, BOTOES, AVISO } = require('./dispositivo-texto');
 const executorFicticio = require('./executorFicticio');
+const { TEMPO_MAX_REAL_MS } = require('./executorReal');
 
 const SINAL_MS = 2 * 60 * 1000;
 // O servidor diz quando quer o sinal seguinte (proximoSinalSeg); limitado a isto.
@@ -18,7 +19,7 @@ const SINAL_MAX_SEG = 300;
 const TERMINAR_MAX_MS = 60 * 1000;
 const RAIZ = '/users/me/devices';
 // O servidor só entrega tarefas a quem declara saber fazê-las.
-const CAPACIDADES = ['tarefas-v1', 'pacotes-v1'];
+const CAPACIDADES = ['tarefas-v1', 'pacotes-v1', 'levantar-v1'];
 const VISTAS_MAX = 50;
 const CONCLUIR_TENTATIVAS = 4;
 // O identificador da máquina só vai com o consentimento do texto que fala dele.
@@ -54,6 +55,14 @@ function criarDispositivo(deps) {
   const desagendarFn = deps.clearTimeoutFn || clearTimeout;
   const lerMaquina = deps.maquinaId || (() => Promise.resolve(null));
   const executor = deps.executor || executorFicticio.executar;
+  // Sem executorReal as contas reais não correm: o pacote pára e larga o resto.
+  const executorReal = deps.executorReal || null;
+  const limparParticoes = deps.limparParticoes || (async () => 0);
+  const aguardarLimite = deps.aguardarLimite || ((ms) => {
+    let t;
+    const p = new Promise(r => { t = setTimeout(r, ms); });
+    return { p, cancelar: () => clearTimeout(t) };
+  });
   const esperar = deps.esperar || ((ms) => new Promise(r => setTimeout(r, ms)));
   const aleatorio = deps.aleatorio || Math.random;
   const registar = deps.registar || ((m, extra) => console.warn(m, extra || ''));
@@ -72,6 +81,8 @@ function criarDispositivo(deps) {
   let arranqueSuspenso = false;
   // Uma tarefa de cada vez; as já vistas não voltam a correr (o servidor repete-a no sinal até ela começar).
   let execucao = null;
+  // Uma conta real a decorrer: o fecho da app espera por ela mais do que por uma simulada.
+  let contaReal = false;
   const vistas = [];
 
   const chaveDe = (userId) => `dispositivo:${userId}`;
@@ -211,6 +222,7 @@ function criarDispositivo(deps) {
     const novo = { ...reg, consentido: false, revogarPendente: pendente };
     await storage.setItem(s.chave, novo);
     aplicar(novo);
+    await apagarBrowsers();
     return { ok: true };
   }
 
@@ -249,12 +261,13 @@ function criarDispositivo(deps) {
         capacidades: CAPACIDADES, ...(reg.versao >= VERSAO_COM_MAQUINA && { maquinaId: await lerMaquina() }), estado: estadoPc
       });
       if (r.status === 401 || r.status === 403) return suspender();
-      if (r.status === 404) return desligarLocal(s, reg);
+      if (r.status === 404) { await apagarBrowsers(); return desligarLocal(s, reg); }
       if (r.status !== 200) return;
       const d = dadosDe(r);
       if (d?.consentimentoValido === false) {
-        // Desligado no servidor ou conta suspensa pode passar: o consentimento fica e o sinal continua.
+        // Desligado no servidor ou conta suspensa pode passar: o consentimento e os browsers das contas ficam.
         if (d.motivo === 'desligado' || d.motivo === 'conta') return suspender();
+        await apagarBrowsers();
         return desligarLocal(s, reg);
       }
       tray.setOperacoes(true);
@@ -316,6 +329,19 @@ function criarDispositivo(deps) {
     };
   }
 
+  /** A chave privada decifrada, só para o executor real; nunca fica guardada aqui. */
+  async function privadaDecifrada() {
+    const s = await sessao();
+    const reg = s && await ler(s.chave);
+    if (!reg?.privadaCifrada) throw new Error('sem chave');
+    return safeStorage.decryptString(Buffer.from(reg.privadaCifrada, 'base64'));
+  }
+
+  /** O browser de cada conta apaga-se quando o consentimento acaba. */
+  async function apagarBrowsers() {
+    try { await limparParticoes(); } catch (e) { registar('Não foi possível apagar os browsers das contas', { erro: e.message }); }
+  }
+
   /** Lança a tarefa sem esperar por ela. Só simuladas: esta versão não sabe fazer tarefas reais. */
   function tratarTarefa(deviceId, tarefa) {
     const id = Number(tarefa.tarefaId);
@@ -361,8 +387,9 @@ function criarDispositivo(deps) {
       const tarefaId = Number(t.tarefaId);
       // A meio quando a app fechou: não se retoma, o servidor passa-a a «por verificar».
       if (t.estado === 'a-decorrer') { iniciadas++; continue; }
-      if (t.simulada !== true) {
-        registar('Conta não simulada: esta versão da app só faz simulações', { tarefaId });
+      const real = t.simulada !== true;
+      if (real && !executorReal) {
+        registar('Conta real sem executor: o pacote pára', { tarefaId });
         break;
       }
       if (pausar) {
@@ -373,10 +400,14 @@ function criarDispositivo(deps) {
       }
       estadoPc = { pc: 'a-trabalhar', tarefaId };
       pausar = false;
+      const io = ioDe(deviceId, tarefaId, `${tarefaId}@p${pacoteId}`, () => { iniciadas++; pausar = true; });
+      contaReal = real;
       try {
-        await executor(t, ioDe(deviceId, tarefaId, `${tarefaId}@p${pacoteId}`, () => { iniciadas++; pausar = true; }));
+        await (real ? executorReal(t, io, { deviceId, privada: privadaDecifrada }) : executor(t, io));
       } catch (e) {
         registar('Conta do pacote não concluída', { tarefaId, erro: e.message });
+      } finally {
+        contaReal = false;
       }
     }
     // Contas que não começaram (recusadas, saltadas, app a fechar): sem isto, o pacote prendia a máquina.
@@ -405,16 +436,16 @@ function criarDispositivo(deps) {
     temporizador = null;
   }
 
-  /** Fecho da app: acaba a conta atual (no máximo 60 s), não começa outra e larga o resto do pacote. */
+  /** Fecho da app: acaba a conta atual (no máximo 60 s; 10 min se for real), não começa outra e larga o resto do pacote. */
   async function terminar() {
     aTerminar = true;
     estadoPc = { pc: 'a-terminar' };
     acordarPausa?.();
     await sinal();
     if (execucao) {
-      let limite;
-      await Promise.race([execucao, new Promise(r => { limite = setTimeout(r, TERMINAR_MAX_MS); })]);
-      clearTimeout(limite);
+      const limite = aguardarLimite(contaReal ? TEMPO_MAX_REAL_MS : TERMINAR_MAX_MS);
+      await Promise.race([execucao, limite.p]);
+      limite.cancelar();
     }
     parar();
   }

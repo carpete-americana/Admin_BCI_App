@@ -168,6 +168,13 @@ test('o preload monta o texto por textContent: marcas HTML não viram elementos'
   assert.equal(doc.getElementById('recusar').textContent, 'Cancelar');
 });
 
+test('no pedido o foco fica em «Agora não»; no aviso em «Ver o pedido»', () => {
+  const pedido = correrPreload(new URLSearchParams({ modo: 'pedido', titulo: 'T', texto: 'x', aceitar: 'A', recusar: 'R' }).toString());
+  assert.equal(pedido.doc.activeElement?.id, 'recusar');
+  const aviso = correrPreload(new URLSearchParams({ modo: 'aviso', titulo: 'T', texto: 'x', aceitar: 'A', recusar: 'R' }).toString());
+  assert.equal(aviso.doc.activeElement?.id, 'aceitar');
+});
+
 test('os botões respondem true e false pelo canal certo', () => {
   const { doc, enviados } = correrPreload(new URLSearchParams({ titulo: 'T', texto: 'x', aceitar: 'A', recusar: 'R' }).toString());
   doc.getElementById('aceitar').click();
