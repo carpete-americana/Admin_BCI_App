@@ -68,7 +68,8 @@ function criarJanela(accountId, deps, { hostsExtra = [] } = {}) {
     contextIsolation: true,
     sandbox: true
   });
-  const win = new BrowserWindow({ show: false, webPreferences: webPreferences() });
+  // Tamanho de computador: a 800 px a Placard passa ao cabeçalho de telemóvel e esconde o «Depositar» que confirma o login.
+  const win = new BrowserWindow({ show: false, width: 1366, height: 900, webPreferences: webPreferences() });
   const wc = win.webContents;
   protegerConteudo(wc);
   wc.setWindowOpenHandler(({ url }) => (hostPermitido(url, hostsExtra)

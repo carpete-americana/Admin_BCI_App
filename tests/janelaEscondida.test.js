@@ -51,6 +51,13 @@ test('abre escondida, sem preload e com o browser só desta conta', () => {
   assert.ok(!('preload' in w));
 });
 
+test('abre com tamanho de computador: abaixo disto o casino esconde o «Depositar» que confirma o login', () => {
+  const { BrowserWindow, estado } = electronFalso();
+  criarJanela(7, { BrowserWindow });
+  assert.ok(estado.opcoes.width >= 1280, `largura ${estado.opcoes.width}`);
+  assert.ok(estado.opcoes.height >= 800, `altura ${estado.opcoes.height}`);
+});
+
 test('a sessão da conta recusa todas as permissões e cancela downloads; a janela não tem som', () => {
   const { BrowserWindow, estado } = electronFalso();
   criarJanela(7, { BrowserWindow });
