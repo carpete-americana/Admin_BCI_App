@@ -11,7 +11,7 @@ const SENHA = vetor.texto;
 const TAREFA = { tarefaId: vetor.tarefaId, accountId: 7, casino: 'Placard', parametros: { modo: 'igual', valor: 20, minimo: 10 } };
 const ENTREGA = { ...vetor.entrega, username: 'joao', fluxo: null };
 
-function montar({ status = 200, motor, resposta, relogio = {} } = {}) {
+function montar({ status = 200, motor, resposta, relogio = {}, deveParar } = {}) {
   const registo = [];
   const api = {
     post: async (rota, corpo) => {
@@ -40,11 +40,30 @@ function montar({ status = 200, motor, resposta, relogio = {} } = {}) {
     },
     ...relogio
   });
-  const ctx = { deviceId: 'D1', privada: async () => vetor.privada };
+  const ctx = { deviceId: 'D1', privada: async () => vetor.privada, deveParar };
   return { executar: (tarefa, io) => executar(tarefa, io, ctx), io, registo, chamadas };
 }
 
 const concluido = (registo) => registo.find(x => x.io === 'concluir');
+
+test('consentimento retirado antes da credencial: falhada «parado», sem pedir a credencial nem abrir a janela', async () => {
+  const { executar, io, registo, chamadas } = montar({ deveParar: () => true });
+  await executar(TAREFA, io);
+  assert.ok(!registo.some(x => x.api), 'não pede a credencial');
+  assert.equal(chamadas.criarJanela.length, 0);
+  assert.equal(concluido(registo).estado, 'falhada');
+  assert.equal(concluido(registo).resultado.fase, 'parado');
+});
+
+test('o motor recebe deveParar ligado ao do contexto', async () => {
+  let parar = false;
+  const { executar, io, chamadas } = montar({ deveParar: () => parar });
+  await executar(TAREFA, io);
+  const p = chamadas.levantar[0][1];
+  assert.equal(p.deveParar(), false);
+  parar = true;
+  assert.equal(p.deveParar(), true);
+});
 
 test('ordem: iniciar, credenciais, janela, motor, fechar, concluir', async () => {
   const { executar, io, registo } = montar();

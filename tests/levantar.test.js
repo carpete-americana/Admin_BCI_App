@@ -54,6 +54,30 @@ const pedido = (extra = {}) => ({ casino: 'placard', fluxo: null, credencial: CR
 
 // ---------- estados finais ----------
 
+test('deveParar antes de Levantar: falhada «parado» e o botão nunca é premido', async () => {
+  const logo = cenario();
+  const r0 = await levantarDaConta(logo, pedido({ deveParar: () => true }));
+  assert.equal(r0.estado, 'falhada');
+  assert.equal(r0.fase, 'parado');
+  assert.deepEqual(logo.nomes(), [], 'nem chega a abrir o casino');
+
+  // Retirado depois de preparar o caixa: pára antes do clique.
+  let parar = false;
+  const d = cenario({ aoChamar: (nome) => { if (nome === 'prepararLevantamento') parar = true; } });
+  const r = await levantarDaConta(d, pedido({ deveParar: () => parar }));
+  assert.equal(r.estado, 'falhada');
+  assert.equal(r.fase, 'parado');
+  assert.equal(r.valor, 20);
+  assert.ok(!d.nomes().includes('confirmarLevantamento'));
+});
+
+test('deveParar depois de carregar em Levantar já não pára: a conta acaba', async () => {
+  let parar = false;
+  const d = cenario({ aoChamar: (nome) => { if (nome === 'confirmarLevantamento') parar = true; } });
+  const r = await levantarDaConta(d, pedido({ deveParar: () => parar }));
+  assert.equal(r.estado, 'feita');
+});
+
 test('sessão ativa e saldo lido: o ensaio devolve valor e iban e nunca confirma', async () => {
   const d = cenario();
   const r = await levantarDaConta(d, pedido({ ensaio: true }));

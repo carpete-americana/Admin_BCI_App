@@ -83,6 +83,8 @@ function criarDispositivo(deps) {
   let execucao = null;
   // Uma conta real a decorrer: o fecho da app espera por ela mais do que por uma simulada.
   let contaReal = false;
+  // Consentimento retirado com trabalho a meio: a conta real pára antes de Levantar e o pacote não segue.
+  let parado = false;
   const vistas = [];
 
   const chaveDe = (userId) => `dispositivo:${userId}`;
@@ -219,6 +221,7 @@ function criarDispositivo(deps) {
     } catch (e) {
       pendente = true;
     }
+    parado = true;
     const novo = { ...reg, consentido: false, revogarPendente: pendente };
     await storage.setItem(s.chave, novo);
     aplicar(novo);
@@ -236,6 +239,7 @@ function criarDispositivo(deps) {
   }
 
   async function desligarLocal(s, reg) {
+    parado = true;
     const novo = { ...reg, consentido: false };
     await storage.setItem(s.chave, novo);
     aplicar(novo);
@@ -337,9 +341,13 @@ function criarDispositivo(deps) {
     return safeStorage.decryptString(Buffer.from(reg.privadaCifrada, 'base64'));
   }
 
-  /** O browser de cada conta apaga-se quando o consentimento acaba. */
+  /** O browser de cada conta apaga-se quando o consentimento acaba; com uma conta a meio, só quando ela acabar. */
   async function apagarBrowsers() {
-    try { await limparParticoes(); } catch (e) { registar('Não foi possível apagar os browsers das contas', { erro: e.message }); }
+    const limpar = async () => {
+      try { await limparParticoes(); } catch (e) { registar('Não foi possível apagar os browsers das contas', { erro: e.message }); }
+    };
+    if (execucao) { execucao.finally(limpar); return; }
+    await limpar();
   }
 
   /** Lança a tarefa sem esperar por ela. Só simuladas: esta versão não sabe fazer tarefas reais. */
@@ -367,6 +375,7 @@ function criarDispositivo(deps) {
     if (!Number.isInteger(id) || id <= 0 || execucao || aTerminar || vistas.includes(chave)) return;
     vistas.push(chave);
     if (vistas.length > VISTAS_MAX) vistas.shift();
+    parado = false;
     execucao = correrPacote(deviceId, id, Array.isArray(pacote.contas) ? pacote.contas : [], pacote.pausaSeg)
       .catch(e => registar('Pacote não concluído', { pacoteId: id, erro: e.message }))
       .finally(() => { execucao = null; estadoPc = { pc: aTerminar ? 'a-terminar' : 'livre' }; });
@@ -383,7 +392,7 @@ function criarDispositivo(deps) {
     // Pausa só depois de uma conta que correu: as recusadas (pacote cancelado, conta entregue a outra) passam logo.
     let pausar = false;
     for (const t of contas) {
-      if (aTerminar) break;
+      if (aTerminar || parado) break;
       const tarefaId = Number(t.tarefaId);
       // A meio quando a app fechou: não se retoma, o servidor passa-a a «por verificar».
       if (t.estado === 'a-decorrer') { iniciadas++; continue; }
@@ -396,14 +405,14 @@ function criarDispositivo(deps) {
         const s = min + aleatorio() * Math.max(0, max - min);
         estadoPc = { pc: 'em-pausa', proximaEmSeg: Math.round(s) };
         await pausa(s * 1000);
-        if (aTerminar) break;
+        if (aTerminar || parado) break;
       }
       estadoPc = { pc: 'a-trabalhar', tarefaId };
       pausar = false;
       const io = ioDe(deviceId, tarefaId, `${tarefaId}@p${pacoteId}`, () => { iniciadas++; pausar = true; });
       contaReal = real;
       try {
-        await (real ? executorReal(t, io, { deviceId, privada: privadaDecifrada }) : executor(t, io));
+        await (real ? executorReal(t, io, { deviceId, privada: privadaDecifrada, deveParar: () => parado }) : executor(t, io));
       } catch (e) {
         registar('Conta do pacote não concluída', { tarefaId, erro: e.message });
       } finally {

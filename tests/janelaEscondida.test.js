@@ -6,12 +6,22 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { criarJanela, limparParticoes, USER_AGENT } = require('../src/main/janelaEscondida');
 
-function electronFalso({ frames = [], loadURL } = {}) {
-  const estado = { opcoes: null, ua: null, ouvintes: {}, abrir: null, destruida: false, urls: [], executado: [] };
+function sessaoFalsa() {
+  const s = { pedido: null, verificacao: null, ouvintes: {}, registos: 0 };
+  s.setPermissionRequestHandler = (f) => { s.pedido = f; s.registos++; };
+  s.setPermissionCheckHandler = (f) => { s.verificacao = f; };
+  s.on = (ev, f) => { s.ouvintes[ev] = [...(s.ouvintes[ev] || []), f]; };
+  return s;
+}
+
+function electronFalso({ frames = [], loadURL, session = sessaoFalsa() } = {}) {
+  const estado = { opcoes: null, ua: null, ouvintes: {}, abrir: null, destruida: false, urls: [], executado: [], mudo: false, session };
   class BrowserWindow {
     constructor(opcoes) {
       estado.opcoes = opcoes;
       this.webContents = {
+        session,
+        setAudioMuted: (m) => { estado.mudo = m; },
         setUserAgent: (ua) => { estado.ua = ua; },
         on: (ev, f) => { estado.ouvintes[ev] = f; },
         setWindowOpenHandler: (f) => { estado.abrir = f; },
@@ -39,6 +49,32 @@ test('abre escondida, sem preload e com o browser só desta conta', () => {
   assert.equal(w.contextIsolation, true);
   assert.equal(w.sandbox, true);
   assert.ok(!('preload' in w));
+});
+
+test('a sessão da conta recusa todas as permissões e cancela downloads; a janela não tem som', () => {
+  const { BrowserWindow, estado } = electronFalso();
+  criarJanela(7, { BrowserWindow });
+  const s = estado.session;
+  assert.equal(estado.mudo, true);
+  for (const p of ['media', 'notifications', 'geolocation', 'clipboard-read']) {
+    let resposta = null;
+    s.pedido(null, p, (r) => { resposta = r; });
+    assert.equal(resposta, false, p);
+    assert.equal(s.verificacao(null, p), false, p);
+  }
+  let impedido = false;
+  let cancelado = false;
+  s.ouvintes['will-download'][0]({ preventDefault: () => { impedido = true; } }, { cancel: () => { cancelado = true; } });
+  assert.ok(impedido && cancelado);
+});
+
+test('a mesma sessão (mesma conta) só é preparada uma vez', () => {
+  const session = sessaoFalsa();
+  const a = electronFalso({ session });
+  criarJanela(7, { BrowserWindow: a.BrowserWindow });
+  criarJanela(7, { BrowserWindow: a.BrowserWindow });
+  assert.equal(session.registos, 1);
+  assert.equal(session.ouvintes['will-download'].length, 1);
 });
 
 test('o user agent é o do Chrome, sem Electron', () => {

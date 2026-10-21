@@ -1010,3 +1010,39 @@ test('uma falha ao apagar os browsers não impede a revogação', async () => {
   assert.equal(c.guardado.get('dispositivo:7').consentido, false);
   assert.equal(avisos.length, 1);
 });
+
+test('revogar com uma conta real a meio: o executor vê deveParar, o pacote não segue e os browsers só se apagam no fim', async () => {
+  let soltar;
+  let ctxVisto;
+  let apagados = 0;
+  const reais = [];
+  const pacote = { pacoteId: 9, loteId: 5, pausaSeg: [0, 0], contas: [contaReal(1), contaReal(2)] };
+  const c = cenario({
+    rotas: comPacote(pacote),
+    extra: {
+      ...semEspera,
+      limparParticoes: async () => { apagados++; },
+      executorReal: async (t, io, ctx) => {
+        ctxVisto = ctx;
+        reais.push(t.tarefaId);
+        await io.iniciar(1);
+        await new Promise(r => { soltar = r; });
+        await io.concluir('falhada', {});
+      }
+    }
+  });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await new Promise(r => setImmediate(r));
+  assert.equal(ctxVisto.deveParar(), false);
+  await c.d.revogar();
+  assert.equal(ctxVisto.deveParar(), true);
+  assert.equal(apagados, 0, 'não se apaga o browser de uma conta a meio');
+  soltar();
+  await c.d.aguardarTarefa();
+  await new Promise(r => setImmediate(r));
+  assert.deepEqual(reais, [1], 'a segunda conta não começa');
+  assert.equal(apagados, 1);
+  assert.ok(c.chamadas.some(x => x.caminho.endsWith('/pacotes/9/largar')));
+});

@@ -124,18 +124,23 @@ async function entrar(driver, chave, fluxoPainel, credencial) {
 /**
  * Uma conta. `casino` é a chave de casinos.js e `fluxo` a linha de login do painel (ou null).
  * Depois de carregar em Levantar qualquer dúvida é `verificar`; antes é `falhada`.
+ * `deveParar()` verdadeiro (consentimento retirado) pára entre passos; depois de Levantar já não se pára.
  */
-async function levantarDaConta(driver, { casino, fluxo, credencial, parametros, ensaio }, aoPasso) {
+async function levantarDaConta(driver, { casino, fluxo, credencial, parametros, ensaio, deveParar }, aoPasso) {
   const cfg = C.CASINOS[casino]?.levantar;
   if (!cfg) return falhada('casino', 'Este casino não tem levantamento automático');
   const passo = async (nome, extra) => { await seguro(() => aoPasso?.(nome, extra), null); };
   const est = { confirmado: false, saldo: undefined, valor: undefined };
+  const parado = () => { try { return deveParar?.() === true; } catch (e) { return false; } };
+  const PARADO = 'O consentimento foi retirado: parou antes de Levantar';
 
   try {
+    if (parado()) return falhada('parado', PARADO);
     await passo('a-entrar');
     const semEntrar = await entrar(driver, casino, fluxo, credencial);
     if (semEntrar) return semEntrar;
 
+    if (parado()) return falhada('parado', PARADO);
     await passo('a-abrir');
     await driver.navegar(cfg.url);
 
@@ -150,6 +155,7 @@ async function levantarDaConta(driver, { casino, fluxo, credencial, parametros, 
     if (conta.saltar) return { estado: 'saltada', saldo: est.saldo, motivo: conta.saltar };
     est.valor = conta.valor;
 
+    if (parado()) return falhada('parado', PARADO, { saldo: est.saldo });
     await passo('a-preencher', { saldo: est.saldo, valor: est.valor });
     // Repete enquanto o caixa carrega ou valida; só o último motivo conta.
     let prep = null;
@@ -164,6 +170,7 @@ async function levantarDaConta(driver, { casino, fluxo, credencial, parametros, 
       return { estado: 'ensaio', saldo: est.saldo, valor: est.valor, iban: prep.iban, motivo: 'Ensaio: não carregou em Levantar' };
     }
 
+    if (parado()) return falhada('parado', PARADO, { saldo: est.saldo, valor: est.valor });
     await passo('a-levantar');
     // Marcado antes do clique: se a chamada rebentar não se sabe se o botão foi premido.
     est.confirmado = true;

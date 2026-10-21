@@ -18,6 +18,19 @@ const USER_AGENT = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 let paginaJs = null;
 const lerPagina = () => (paginaJs ??= fs.readFileSync(FICHEIRO_PAGINA, 'utf8'));
 
+// Uma vez por sessão: a mesma conta abre muitas janelas e o will-download acumulava ouvintes.
+const sessoesFechadas = new WeakSet();
+
+/** Na sessão da conta não há pessoa a decidir: nenhuma permissão (câmara, microfone, notificações…) nem downloads. */
+function fecharSessao(ses) {
+  if (!ses || sessoesFechadas.has(ses)) return;
+  sessoesFechadas.add(ses);
+  ses.setPermissionRequestHandler((wc, permissao, responder) => responder(false));
+  ses.setPermissionCheckHandler(() => false);
+  // Sem isto o Electron abria o «Guardar como» no ecrã da pessoa.
+  ses.on('will-download', (event, item) => { event.preventDefault(); try { item.cancel(); } catch (e) { /* já cancelado */ } });
+}
+
 const eHttps = (url) => {
   try { return new URL(url).protocol === 'https:'; } catch (e) { return false; }
 };
@@ -40,6 +53,8 @@ function criarJanela(accountId, deps) {
     }
   });
   const wc = win.webContents;
+  fecharSessao(wc.session);
+  wc.setAudioMuted(true);
   wc.setUserAgent(USER_AGENT);
   const bloquear = (event, url) => { if (!eHttps(url)) event.preventDefault(); };
   wc.on('will-navigate', bloquear);

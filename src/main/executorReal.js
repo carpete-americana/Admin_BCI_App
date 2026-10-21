@@ -28,7 +28,8 @@ function resultadoDe(r) {
 }
 
 /**
- * `raiz(deviceId)` dá a rota do dispositivo; o contexto `ctx = { deviceId, privada() }` traz a chave privada em base64 (só aqui é lida).
+ * `raiz(deviceId)` dá a rota do dispositivo; o contexto `ctx = { deviceId, privada(), deveParar() }` traz a chave privada em base64 (só aqui é lida)
+ * e diz se o consentimento foi retirado a meio.
  * Devolve (tarefa, io, ctx) => Promise<void>, com a forma do executor fictício.
  */
 function criarExecutorReal({ api, raiz, criarJanela, levantar, setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout }) {
@@ -38,6 +39,8 @@ function criarExecutorReal({ api, raiz, criarJanela, levantar, setTimeoutFn = se
 
     const casino = chaveDoNome(tarefa.casino);
     if (!casino) return io.concluir('falhada', { fase: 'casino', motivo: 'Casino não reconhecido' });
+
+    if (ctx.deveParar?.() === true) return io.concluir('falhada', { fase: 'parado', motivo: 'O consentimento foi retirado antes de começar' });
 
     let dados;
     try {
@@ -67,7 +70,8 @@ function criarExecutorReal({ api, raiz, criarJanela, levantar, setTimeoutFn = se
         temporizador = setTimeoutFn(() => resolve({ estado: 'verificar', fase: 'tempo', motivo: 'Passou o tempo máximo — vê no casino se ficou feito' }), TEMPO_MAX_REAL_MS);
       });
       const motor = levantar(janela.driver, {
-        casino, fluxo: dados.fluxo ?? null, credencial, parametros: tarefa.parametros || {}, ensaio: !!tarefa.parametros?.ensaio
+        casino, fluxo: dados.fluxo ?? null, credencial, parametros: tarefa.parametros || {}, ensaio: !!tarefa.parametros?.ensaio,
+        deveParar: () => ctx.deveParar?.() === true
       }, async (passo) => {
         if (!terminado) await io.progresso?.(passo, RESTANTE_SEG[passo] ?? 60);
       });
