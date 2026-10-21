@@ -1,0 +1,12 @@
+{
+  "privada": "OObWzKacwxpyz0LQL6KchijaYH5Mk699z0qFuibeEWo=",
+  "publica": "8R3fV5qciyymPL3YOebjnRugOyy3rQ3O4GCqaWWoZCs=",
+  "tarefaId": 4242,
+  "texto": "senha-de-teste-ç€",
+  "entrega": {
+    "epk": "oJk6QPDRtSJ8SZHeQhhkHyijLU3IN0y3VPo99wVuJx0=",
+    "iv": "5LNmOt7IOcbhxEj3",
+    "tag": "cNiObYQHLi94jRpZtqJPJw==",
+    "cifrado": "MDMybjZxWeusXe0et6WW07UDwhs="
+  }
+}
