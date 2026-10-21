@@ -25,7 +25,7 @@ function resultadoDe(r, tipo) {
   const estado = ESTADOS.includes(r?.estado) ? r.estado : 'verificar';
   if (tipo === 'depositar') {
     const { entidade, referencia, validade, codigo, motivo, fase } = r || {};
-    return { estado, resultado: { valor: r?.montante ?? r?.valor, entidade, referencia, validade, codigo, motivo, fase } };
+    return { estado, resultado: { valor: r?.valor, entidade, referencia, validade, codigo, motivo, fase } };
   }
   const resultado = { saldo: r?.saldo, valor: r?.valor, ibanFim: ibanFim(r?.iban), motivo: r?.motivo, fase: r?.fase };
   if (estado === 'feita' && r?.motivo) resultado.textoCaixa = r.motivo;

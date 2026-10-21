@@ -42,7 +42,7 @@ function montar({ status = 200, motor, resposta, relogio = {}, deveParar } = {})
       chamadas.depositar.push([driver, pedido]);
       registo.push({ motor: 'depositar' });
       if (motor) return motor(driver, pedido, aoPasso);
-      return { estado: 'feita', entidade: '21312', referencia: '123456789', montante: 20, validade: '2026-10-25', codigo: 'X1' };
+      return { estado: 'feita', valor: 20, entidade: '21312', referencia: '123456789', validade: '2026-10-25', codigo: 'X1' };
     },
     ...relogio
   });
@@ -194,6 +194,12 @@ test('tipo depositar vai ao depositar, com hostsExtra na janela, e deixa sair os
   const c = concluido(registo);
   assert.equal(c.estado, 'feita');
   assert.deepEqual(c.resultado, { valor: 20, entidade: '21312', referencia: '123456789', validade: '2026-10-25', codigo: 'X1', motivo: undefined, fase: undefined });
+});
+
+test('depósito: o valor da referência é o que o motor escreveu, nunca um montante lido na página', async () => {
+  const { executar, io, registo } = montar({ motor: async () => ({ estado: 'feita', valor: 20, montante: 1000, entidade: 'E', referencia: 'R' }) });
+  await executar({ ...TAREFA, tipo: 'depositar', parametros: { valor: 20 } }, io);
+  assert.equal(concluido(registo).resultado.valor, 20);
 });
 
 test('levantar (com ou sem tipo) usa janela sem hostsExtra e nunca deixa sair os campos de depósito', async () => {

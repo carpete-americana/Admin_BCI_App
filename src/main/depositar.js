@@ -97,8 +97,8 @@ async function depositarDaConta(driver, { casino, fluxo, credencial, parametros,
     }
     if (ensaio || parametros?.ensaio) return { estado: 'ensaio', valor, codigo, motivo: 'Ensaio: não carregou em Depositar' };
 
-    if (parado()) return falhada('parado', PARADO, extra);
     await passo('a-depositar', extra);
+    if (parado()) return falhada('parado', PARADO, extra);
     // Marcado antes do clique: se a chamada rebentar não se sabe se o botão foi premido.
     est.confirmado = true;
     if (!await driver.naCaixa('confirmarDeposito', cfg)) {
@@ -112,12 +112,13 @@ async function depositarDaConta(driver, { casino, fluxo, credencial, parametros,
       if (ref?.entidade && ref?.referencia) {
         const referencia = String(ref.referencia).replace(/[\s.]/g, '');
         return {
-          estado: 'feita', valor, codigo, entidade: String(ref.entidade), referencia,
-          montante: ref.montante ?? valor, validade: ref.validade || null,
+          // O valor é o que o PC escreveu no caixa; o montante lido na página não conta.
+          estado: 'feita', valor, codigo, entidade: String(ref.entidade), referencia, validade: ref.validade || null,
           motivo: `Entidade ${ref.entidade} · Referência ${referencia}`
         };
       }
-      if (r?.estado === 'erro') return falhada('caixa', r.texto, extra);
+      // Os textos de erro também apanham o mínimo e o máximo do caixa: a referência pode ter sido gerada.
+      if (r?.estado === 'erro') return verificar('caixa', r.texto, extra);
     }
     // Sem referência lida o casino pode tê-la gerado: pára para não pedir outra por cima.
     return verificar('resultado', 'Não consegui ler a referência — vê no casino e copia-a à mão', extra);

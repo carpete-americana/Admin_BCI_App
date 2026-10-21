@@ -39,6 +39,10 @@ function preparaCaixa({ depois, codigo }) {
     d.getElementById('continueButton').addEventListener('click', () => {
       if (depois === 'referencia') d.body.innerHTML = corpo('referencia-sibs');
       if (depois === 'erro') d.body.innerHTML = '<div role="alert">Limite de depósito excedido.</div>';
+      if (depois === 'limites') d.body.insertAdjacentHTML('beforeend', '<p>Mínimo 10 € · Máximo 1000 €</p>');
+      if (depois === 'montante-lido') {
+        d.body.innerHTML = '<p>Entidade: 50410</p><p>Referência: 123 456 789</p><p>Montante: 1.000,00 €</p>';
+      }
     });
   };
 }
@@ -68,13 +72,14 @@ const conta = (d, nome) => d.nomes().filter(n => n === nome).length;
 
 // ---------- feita ----------
 
-test('referência no caixa: feita com entidade, referência, montante, validade ISO e o código', async () => {
+test('referência no caixa: feita com entidade, referência, valor, validade ISO e o código', async () => {
   const d = cenario();
   const r = await depositarDaConta(d, pedido({}, { codigo: 'BEMVINDO' }));
   assert.deepEqual(
-    [r.estado, r.valor, r.codigo, r.entidade, r.referencia, r.montante, r.validade],
-    ['feita', 20, 'BEMVINDO', '50410', '123456789', 20, '2026-10-19']
+    [r.estado, r.valor, r.codigo, r.entidade, r.referencia, r.validade],
+    ['feita', 20, 'BEMVINDO', '50410', '123456789', '2026-10-19']
   );
+  assert.equal('montante' in r, false);
   assert.match(r.motivo, /50410/);
   assert.equal(conta(d, 'confirmarDeposito'), 1);
 });
@@ -87,11 +92,19 @@ test('referência numa janela nova: feita', async () => {
   assert.ok(d.nomes().includes('janelas:lerReferenciaMB'));
 });
 
-test('referência com pontos fica só com dígitos; sem montante lido vale o pedido', async () => {
+test('referência com pontos fica só com dígitos; sem montante lido vale o valor escrito', async () => {
   const d = cenario({ depois: 'nada' });
   d.naJanelasNovas = async () => ({ entidade: '50410', referencia: '123.456 789', montante: null, validade: null });
   const r = await depositarDaConta(d, pedido());
-  assert.deepEqual([r.estado, r.referencia, r.montante, r.validade], ['feita', '123456789', 20, null]);
+  assert.deepEqual([r.estado, r.referencia, r.valor, r.validade], ['feita', '123456789', 20, null]);
+});
+
+test('a página mostra outro montante: o resultado leva o valor que o PC escreveu', async () => {
+  const d = cenario({ depois: 'montante-lido' });
+  const r = await depositarDaConta(d, pedido());
+  assert.equal(r.estado, 'feita');
+  assert.equal(r.valor, 20);
+  assert.equal('montante' in r, false);
 });
 
 // ---------- antes de Depositar ----------
@@ -186,12 +199,21 @@ test('as janelas novas a rebentar não param as voltas: verificar no fim', async
   assert.equal(conta(d, 'resultadoDeposito'), 90);
 });
 
-test('o caixa recusa depois do clique: falhada (não gerou referência)', async () => {
+test('o caixa mostra um erro depois do clique: verificar (a referência pode ter sido gerada)', async () => {
   const d = cenario({ depois: 'erro' });
   const r = await depositarDaConta(d, pedido());
-  assert.equal(r.estado, 'falhada');
+  assert.equal(r.estado, 'verificar');
   assert.equal(r.fase, 'caixa');
   assert.match(r.motivo, /Limite/);
+  assert.equal(r.valor, 20);
+});
+
+test('texto normal do caixa com «Mínimo» e «Máximo» depois do clique: verificar, nunca falhada', async () => {
+  const d = cenario({ depois: 'limites' });
+  const r = await depositarDaConta(d, pedido());
+  assert.equal(r.estado, 'verificar');
+  assert.equal(r.fase, 'caixa');
+  assert.match(r.motivo, /Mínimo 10 €/);
 });
 
 // ---------- paragem e progresso ----------
@@ -209,6 +231,15 @@ test('deveParar depois de aplicar o código: falhada «parado» e nunca Deposita
   const r0 = await depositarDaConta(logo, pedido({ deveParar: () => true }));
   assert.equal(r0.fase, 'parado');
   assert.deepEqual(logo.nomes(), []);
+});
+
+test('deveParar durante o aviso a-depositar: falhada «parado» e nunca Depositar', async () => {
+  let parar = false;
+  const d = cenario();
+  const r = await depositarDaConta(d, pedido({ deveParar: () => parar }), (p) => { if (p === 'a-depositar') parar = true; });
+  assert.equal(r.estado, 'falhada');
+  assert.equal(r.fase, 'parado');
+  assert.equal(conta(d, 'confirmarDeposito'), 0);
 });
 
 test('deveParar depois de carregar em Depositar já não pára', async () => {

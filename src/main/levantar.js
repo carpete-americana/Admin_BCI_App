@@ -100,8 +100,8 @@ async function levantarDaConta(driver, { casino, fluxo, credencial, parametros, 
       return { estado: 'ensaio', saldo: est.saldo, valor: est.valor, iban: prep.iban, motivo: 'Ensaio: não carregou em Levantar' };
     }
 
-    if (parado()) return falhada('parado', PARADO, { saldo: est.saldo, valor: est.valor });
     await passo('a-levantar');
+    if (parado()) return falhada('parado', PARADO, { saldo: est.saldo, valor: est.valor });
     // Marcado antes do clique: se a chamada rebentar não se sabe se o botão foi premido.
     est.confirmado = true;
     if (!await driver.naCaixa('confirmarLevantamento', cfg)) {
