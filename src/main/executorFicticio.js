@@ -26,6 +26,9 @@ async function executar(tarefa, io) {
     case 'sem-resposta':
       return;
     default:
+      if (tarefa?.tipo === 'depositar') {
+        return io.concluir(p.ensaio ? 'ensaio' : 'feita', { simulado: true, motivo: 'Simulação', entidade: '00000', referencia: '000000000', valor: p.valor });
+      }
       return io.concluir(p.ensaio ? 'ensaio' : 'feita', { simulado: true, motivo: 'Simulação' });
   }
 }

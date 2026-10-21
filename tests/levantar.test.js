@@ -71,6 +71,15 @@ test('deveParar antes de Levantar: falhada «parado» e o botão nunca é premid
   assert.ok(!d.nomes().includes('confirmarLevantamento'));
 });
 
+test('deveParar durante o aviso a-levantar: falhada «parado» e o botão nunca é premido', async () => {
+  let parar = false;
+  const d = cenario();
+  const r = await levantarDaConta(d, pedido({ deveParar: () => parar }), (p) => { if (p === 'a-levantar') parar = true; });
+  assert.equal(r.estado, 'falhada');
+  assert.equal(r.fase, 'parado');
+  assert.ok(!d.nomes().includes('confirmarLevantamento'));
+});
+
 test('deveParar depois de carregar em Levantar já não pára: a conta acaba', async () => {
   let parar = false;
   const d = cenario({ aoChamar: (nome) => { if (nome === 'confirmarLevantamento') parar = true; } });

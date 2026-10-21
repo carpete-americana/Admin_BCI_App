@@ -39,27 +39,52 @@ const eHttps = (url) => {
 const codigoDe = (nome, args) =>
   `${lerPagina()};\n${SCRIPT_LEVANTAR};\n(${correrNaPagina})(...${JSON.stringify([nome, ...args])})`;
 
-/** { driver, fechar() } para a conta; nada de preload, só https e nenhuma janela nova. */
-function criarJanela(accountId, deps) {
-  const { BrowserWindow } = deps;
-  const esperar = deps.esperar || ((ms) => new Promise(r => setTimeout(r, ms)));
-  const win = new BrowserWindow({
-    show: false,
-    webPreferences: {
-      partition: `persist:${PREFIXO_PARTICAO}${accountId}`,
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true
-    }
-  });
-  const wc = win.webContents;
+const bloquear = (event, url) => { if (!eHttps(url)) event.preventDefault(); };
+
+/** Sem som, user agent do Chrome e só https; as janelas novas ficam a cargo de quem chama. */
+function protegerConteudo(wc) {
   fecharSessao(wc.session);
   wc.setAudioMuted(true);
   wc.setUserAgent(USER_AGENT);
-  const bloquear = (event, url) => { if (!eHttps(url)) event.preventDefault(); };
   wc.on('will-navigate', bloquear);
   wc.on('will-redirect', bloquear);
-  wc.setWindowOpenHandler(() => ({ action: 'deny' }));
+}
+
+// Hostname exato: um sufixo ou includes deixava passar cdn.safecharge.com.evil.example.
+const hostPermitido = (url, hosts) => {
+  try {
+    const u = new URL(url);
+    // O próprio host ou um subdomínio; nunca includes, que deixava passar safecharge.com.evil.example.
+    return u.protocol === 'https:' && hosts.some(h => u.hostname === h || u.hostname.endsWith(`.${h}`));
+  } catch (e) { return false; }
+};
+
+/** { driver, fechar() } para a conta; nada de preload, só https e janelas novas só para os hostsExtra do caixa (e subdomínios). */
+function criarJanela(accountId, deps, { hostsExtra = [] } = {}) {
+  const { BrowserWindow } = deps;
+  const esperar = deps.esperar || ((ms) => new Promise(r => setTimeout(r, ms)));
+  const webPreferences = () => ({
+    partition: `persist:${PREFIXO_PARTICAO}${accountId}`,
+    nodeIntegration: false,
+    contextIsolation: true,
+    sandbox: true
+  });
+  // Tamanho de computador: a 800 px a Placard passa ao cabeçalho de telemóvel e esconde o «Depositar» que confirma o login.
+  const win = new BrowserWindow({ show: false, width: 1366, height: 900, webPreferences: webPreferences() });
+  const wc = win.webContents;
+  protegerConteudo(wc);
+  wc.setWindowOpenHandler(({ url }) => (hostPermitido(url, hostsExtra)
+    ? { action: 'allow', overrideBrowserWindowOptions: { show: false, webPreferences: webPreferences() } }
+    : { action: 'deny' }));
+
+  // A referência Multibanco do caixa abre numa janela nova; guardam-se as vivas para o driver as ler.
+  const filhas = [];
+  wc.on('did-create-window', (filha) => {
+    protegerConteudo(filha.webContents);
+    filha.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    filhas.push(filha);
+    filha.once('closed', () => { const i = filhas.indexOf(filha); if (i >= 0) filhas.splice(i, 1); });
+  });
 
   const driver = {
     async navegar(url) {
@@ -96,12 +121,33 @@ function criarJanela(accountId, deps) {
       }
       if (rebentou) throw new Error('o caixa não respondeu');
       return null;
+    },
+    // Primeira resposta não nula das janelas abertas pelo caixa; as que rebentam ou já fecharam ignoram-se.
+    async naJanelasNovas(nome, ...args) {
+      const codigo = codigoDe(nome, args);
+      for (const filha of [...filhas]) {
+        try {
+          if (filha.isDestroyed() || filha.webContents.isDestroyed()) continue;
+          const principal = filha.webContents.mainFrame;
+          for (const frame of new Set([principal, ...(principal.framesInSubtree || [])])) {
+            try {
+              const r = await frame.executeJavaScript(codigo);
+              if (r != null) return r;
+            } catch (e) { /* frame sem resposta */ }
+          }
+        } catch (e) { /* filha a fechar */ }
+      }
+      return null;
     }
   };
 
   return {
     driver,
     fechar() {
+      for (const filha of [...filhas]) {
+        try { if (!filha.isDestroyed()) filha.destroy(); } catch (e) { /* já fechada */ }
+      }
+      filhas.length = 0;
       try { if (!win.isDestroyed()) win.destroy(); } catch (e) { /* já fechada */ }
     }
   };
