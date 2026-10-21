@@ -26,7 +26,7 @@ function montar({ status = 200, motor, resposta, relogio = {}, deveParar } = {})
     concluir: async (estado, resultado) => registo.push({ io: 'concluir', estado, resultado })
   };
   const janela = { driver: { id: 'driver' }, fechar: () => registo.push({ janela: 'fechar' }) };
-  const chamadas = { criarJanela: [], levantar: [] };
+  const chamadas = { criarJanela: [], levantar: [], depositar: [] };
   const executar = criarExecutorReal({
     api,
     raiz: (deviceId) => `/users/me/devices/${deviceId}`,
@@ -37,6 +37,12 @@ function montar({ status = 200, motor, resposta, relogio = {}, deveParar } = {})
       if (motor) return motor(driver, pedido, aoPasso);
       for (const p of ['a-entrar', 'a-abrir', 'a-ler-saldo', 'a-preencher', 'a-levantar']) await aoPasso(p);
       return { estado: 'feita', saldo: 30, valor: 20, iban: 'PT50 … 0154', motivo: 'Pedido submetido' };
+    },
+    depositar: async (driver, pedido, aoPasso) => {
+      chamadas.depositar.push([driver, pedido]);
+      registo.push({ motor: 'depositar' });
+      if (motor) return motor(driver, pedido, aoPasso);
+      return { estado: 'feita', valor: 20, entidade: '21312', referencia: '123456789', validade: '2026-10-25', codigo: 'X1' };
     },
     ...relogio
   });
@@ -175,4 +181,43 @@ test('uma entrega que não abre (outra tarefa) falha sem janela', async () => {
   await executar({ ...TAREFA, tarefaId: TAREFA.tarefaId + 1 }, io);
   assert.equal(concluido(registo).resultado.fase, 'credencial');
   assert.equal(chamadas.criarJanela.length, 0);
+});
+
+test('tipo depositar vai ao depositar, com hostsExtra na janela, e deixa sair os campos da referência', async () => {
+  const { executar, io, registo, chamadas } = montar();
+  await executar({ ...TAREFA, tipo: 'depositar', parametros: { valor: 20 } }, io);
+  assert.equal(chamadas.levantar.length, 0);
+  assert.equal(chamadas.depositar.length, 1);
+  const [conta, opcoes] = chamadas.criarJanela[0];
+  assert.equal(conta, 7);
+  assert.ok(Array.isArray(opcoes.hostsExtra) && opcoes.hostsExtra.length > 0);
+  const c = concluido(registo);
+  assert.equal(c.estado, 'feita');
+  assert.deepEqual(c.resultado, { valor: 20, entidade: '21312', referencia: '123456789', validade: '2026-10-25', codigo: 'X1', motivo: undefined, fase: undefined });
+});
+
+test('depósito: o valor da referência é o que o motor escreveu, nunca um montante lido na página', async () => {
+  const { executar, io, registo } = montar({ motor: async () => ({ estado: 'feita', valor: 20, montante: 1000, entidade: 'E', referencia: 'R' }) });
+  await executar({ ...TAREFA, tipo: 'depositar', parametros: { valor: 20 } }, io);
+  assert.equal(concluido(registo).resultado.valor, 20);
+});
+
+test('levantar (com ou sem tipo) usa janela sem hostsExtra e nunca deixa sair os campos de depósito', async () => {
+  for (const tipo of ['levantar', undefined]) {
+    const { executar, io, registo, chamadas } = montar({ motor: async () => ({ estado: 'feita', valor: 20, entidade: 'E', referencia: 'R', validade: 'V', codigo: 'C' }) });
+    await executar({ ...TAREFA, tipo }, io);
+    assert.equal(chamadas.depositar.length, 0);
+    assert.deepEqual(chamadas.criarJanela[0][1], { hostsExtra: [] });
+    const r = concluido(registo).resultado;
+    for (const k of ['entidade', 'referencia', 'validade', 'codigo']) assert.ok(!(k in r) || r[k] === undefined, k);
+  }
+});
+
+test('tipo desconhecido falha na fase tipo sem pedir a credencial', async () => {
+  const { executar, io, registo, chamadas } = montar();
+  await executar({ ...TAREFA, tipo: 'transferir' }, io);
+  assert.ok(!registo.some(x => x.api));
+  assert.equal(chamadas.criarJanela.length, 0);
+  assert.equal(concluido(registo).estado, 'falhada');
+  assert.equal(concluido(registo).resultado.fase, 'tipo');
 });

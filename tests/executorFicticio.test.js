@@ -76,3 +76,12 @@ test('se iniciar falha, não espera nem conclui', async () => {
   await assert.rejects(executar(tarefa(), x));
   assert.equal(x.chamadas.length, 0);
 });
+
+test('depósito: feita com entidade e referência de mentira e o valor pedido', async () => {
+  const x = io();
+  await executar({ ...tarefa({ valor: 25 }), tipo: 'depositar' }, x);
+  assert.deepEqual(x.chamadas.at(-1), ['concluir', 'feita', { simulado: true, motivo: 'Simulação', entidade: '00000', referencia: '000000000', valor: 25 }]);
+  const e = io();
+  await executar({ ...tarefa({ valor: 25, ensaio: true }), tipo: 'depositar' }, e);
+  assert.equal(e.chamadas.at(-1)[1], 'ensaio');
+});

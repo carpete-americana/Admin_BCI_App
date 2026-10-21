@@ -19,6 +19,7 @@ const { criarApi } = require('./apiDados');
 const { criarExecutorReal } = require('./executorReal');
 const { criarJanela, limparParticoes } = require('./janelaEscondida');
 const { levantarDaConta } = require('./levantar');
+const { depositarDaConta } = require('./depositar');
 
 const lerTokenDoAdmin = async () => {
   const valor = await ElectronStorage.getItem('admin-token');
@@ -35,8 +36,9 @@ const dispositivo = criarDispositivo({
   executorReal: criarExecutorReal({
     api: apiDados,
     raiz: (deviceId) => `/users/me/devices/${deviceId}`,
-    criarJanela: (accountId) => criarJanela(accountId, { BrowserWindow }),
-    levantar: levantarDaConta
+    criarJanela: (accountId, opcoes) => criarJanela(accountId, { BrowserWindow }, opcoes),
+    levantar: levantarDaConta,
+    depositar: depositarDaConta
   }),
   limparParticoes: () => limparParticoes(particoes),
   lerToken: lerTokenDoAdmin,

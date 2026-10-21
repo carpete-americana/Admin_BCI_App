@@ -7,6 +7,7 @@
 
 const { decifrarEntrega } = require('./entregaCifra');
 const { chaveDoNome } = require('./levantar');
+const { hostsExtraDe } = require('./depositar');
 
 const TEMPO_MAX_REAL_MS = 10 * 60 * 1000;
 // Estimativa do que falta em cada passo, para o painel; o limite duro é o tempo máximo.
@@ -19,9 +20,13 @@ function ibanFim(iban) {
   return /^\d{1,4}$/.test(fim) ? fim : undefined;
 }
 
-function resultadoDe(r) {
+function resultadoDe(r, tipo) {
   // Um estado que o motor não conhece é dúvida, não falha: pode ter havido dinheiro a mexer.
   const estado = ESTADOS.includes(r?.estado) ? r.estado : 'verificar';
+  if (tipo === 'depositar') {
+    const { entidade, referencia, validade, codigo, motivo, fase } = r || {};
+    return { estado, resultado: { valor: r?.valor, entidade, referencia, validade, codigo, motivo, fase } };
+  }
   const resultado = { saldo: r?.saldo, valor: r?.valor, ibanFim: ibanFim(r?.iban), motivo: r?.motivo, fase: r?.fase };
   if (estado === 'feita' && r?.motivo) resultado.textoCaixa = r.motivo;
   return { estado, resultado };
@@ -32,13 +37,18 @@ function resultadoDe(r) {
  * e diz se o consentimento foi retirado a meio.
  * Devolve (tarefa, io, ctx) => Promise<void>, com a forma do executor fictício.
  */
-function criarExecutorReal({ api, raiz, criarJanela, levantar, setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout }) {
+function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout }) {
   return async function executar(tarefa, io, ctx) {
     const id = Number(tarefa.tarefaId);
     await io.iniciar(150);
 
     const casino = chaveDoNome(tarefa.casino);
     if (!casino) return io.concluir('falhada', { fase: 'casino', motivo: 'Casino não reconhecido' });
+
+    // Tarefas da fase 3 podem não ter tipo: são levantamentos.
+    const tipo = tarefa.tipo ?? 'levantar';
+    if (tipo !== 'depositar' && tipo !== 'levantar') return io.concluir('falhada', { fase: 'tipo', motivo: 'Tipo de tarefa desconhecido' });
+    const motorDoTipo = tipo === 'depositar' ? depositar : levantar;
 
     if (ctx.deveParar?.() === true) return io.concluir('falhada', { fase: 'parado', motivo: 'O consentimento foi retirado antes de começar' });
 
@@ -65,11 +75,11 @@ function criarExecutorReal({ api, raiz, criarJanela, levantar, setTimeoutFn = se
     let terminado = false;
     let r;
     try {
-      janela = criarJanela(Number(tarefa.accountId));
+      janela = criarJanela(Number(tarefa.accountId), { hostsExtra: tipo === 'depositar' ? hostsExtraDe(casino) : [] });
       const limite = new Promise((resolve) => {
         temporizador = setTimeoutFn(() => resolve({ estado: 'verificar', fase: 'tempo', motivo: 'Passou o tempo máximo — vê no casino se ficou feito' }), TEMPO_MAX_REAL_MS);
       });
-      const motor = levantar(janela.driver, {
+      const motor = motorDoTipo(janela.driver, {
         casino, fluxo: dados.fluxo ?? null, credencial, parametros: tarefa.parametros || {}, ensaio: !!tarefa.parametros?.ensaio,
         deveParar: () => ctx.deveParar?.() === true
       }, async (passo) => {
@@ -85,7 +95,7 @@ function criarExecutorReal({ api, raiz, criarJanela, levantar, setTimeoutFn = se
       janela?.fechar();
     }
 
-    const { estado, resultado } = resultadoDe(r);
+    const { estado, resultado } = resultadoDe(r, tipo);
     return io.concluir(estado, resultado);
   };
 }
