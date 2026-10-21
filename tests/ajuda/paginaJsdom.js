@@ -42,6 +42,7 @@ const correr = (w, nome, args) => w.eval(`(${correrNaPagina})(...${JSON.stringif
 /**
  * paginas: { [url]: página | () => página }, com página = { html | fixture, caixa?: html, preparar?(w), preparaCaixa?(w) }.
  * aoChamar(nome, driver) corre depois de cada chamada à página (deixa o teste trocar o ecrã); falhar(nome) true rebenta a chamada.
+ * As chamadas às janelas novas registam-se e falham como `janelas:<nome>`.
  */
 function criarDriver({ paginas = {}, aoChamar, falhar = () => false } = {}) {
   const chamadas = [];
@@ -49,13 +50,20 @@ function criarDriver({ paginas = {}, aoChamar, falhar = () => false } = {}) {
   let atual = null;
   let frame = null;
   let caixa = null;
+  const janelas = [];
 
   const d = {
     chamadas,
     get esperas() { return esperas; },
     get janela() { return frame; },
     get caixa() { return caixa; },
+    get janelas() { return janelas; },
     nomes: () => chamadas.map(c => c.nome),
+
+    // Janela que o caixa abre depois do clique (ex. sibs.html da Nuvei); `nome` é uma fixture.
+    abrirJanela(nome, url = 'https://cdn.safecharge.com/sibs.html') {
+      janelas.push(abrirJanela(fixture(nome), url));
+    },
 
     abrir(url) {
       const resolvida = paginas[url];
@@ -85,6 +93,15 @@ function criarDriver({ paginas = {}, aoChamar, falhar = () => false } = {}) {
       const r = caixa ? correr(caixa, nome, args) : null;
       aoChamar?.(nome, d);
       return r ?? null;
+    },
+    async naJanelasNovas(nome, ...args) {
+      chamadas.push({ nome: `janelas:${nome}`, args });
+      if (falhar(`janelas:${nome}`)) throw new Error(`${nome} rebentou nas janelas`);
+      for (const w of janelas) {
+        const r = correr(w, nome, args);
+        if (r != null) return r;
+      }
+      return null;
     }
   };
   return d;

@@ -19,7 +19,7 @@ const SINAL_MAX_SEG = 300;
 const TERMINAR_MAX_MS = 60 * 1000;
 const RAIZ = '/users/me/devices';
 // O servidor só entrega tarefas a quem declara saber fazê-las.
-const CAPACIDADES = ['tarefas-v1', 'pacotes-v1', 'levantar-v1'];
+const CAPACIDADES = ['tarefas-v1', 'pacotes-v1', 'levantar-v1', 'depositar-v1'];
 const VISTAS_MAX = 50;
 const CONCLUIR_TENTATIVAS = 4;
 // O identificador da máquina só vai com o consentimento do texto que fala dele.

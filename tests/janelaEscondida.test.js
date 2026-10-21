@@ -156,6 +156,101 @@ test('fechar destrói a janela e pode repetir-se', () => {
   assert.equal(estado.destruida, true);
 });
 
+// Filha como o Electron a entrega no did-create-window: BrowserWindow com webContents próprio.
+function filhaFalsa({ resposta = null, frames = [] } = {}) {
+  const f = { ouvintes: {}, ouvintesJanela: {}, abrir: null, mudo: false, ua: null, destruida: false, executado: [] };
+  f.janela = {
+    webContents: {
+      setAudioMuted: (m) => { f.mudo = m; },
+      setUserAgent: (ua) => { f.ua = ua; },
+      on: (ev, fn) => { f.ouvintes[ev] = fn; },
+      setWindowOpenHandler: (fn) => { f.abrir = fn; },
+      isDestroyed: () => f.destruida,
+      mainFrame: {
+        executeJavaScript: async (c) => { f.executado.push(c); if (resposta === 'erro') throw new Error('x'); return resposta; },
+        framesInSubtree: frames
+      }
+    },
+    on: (ev, fn) => { f.ouvintesJanela[ev] = fn; },
+    once: (ev, fn) => { f.ouvintesJanela[ev] = fn; },
+    isDestroyed: () => f.destruida,
+    destroy: () => { f.destruida = true; f.ouvintesJanela.closed?.(); }
+  };
+  return f;
+}
+
+const HOSTS = { hostsExtra: ['cdn.safecharge.com'] };
+
+test('janela nova: só https e só os hosts exatos de hostsExtra, com as mesmas webPreferences e sem preload', () => {
+  const { BrowserWindow, estado } = electronFalso();
+  criarJanela(7, { BrowserWindow }, HOSTS);
+  for (const url of ['https://evil.example/', 'http://cdn.safecharge.com/', 'https://cdn.safecharge.com.evil.example/',
+    'https://evilcdn.safecharge.com/', 'javascript:alert(1)', 'nada']) {
+    assert.deepEqual(estado.abrir({ url }), { action: 'deny' }, url);
+  }
+  const r = estado.abrir({ url: 'https://cdn.safecharge.com/x/sibs.html' });
+  assert.deepEqual(r, {
+    action: 'allow',
+    overrideBrowserWindowOptions: {
+      show: false,
+      webPreferences: { partition: 'persist:op-7', sandbox: true, contextIsolation: true, nodeIntegration: false }
+    }
+  });
+  assert.ok(!('preload' in r.overrideBrowserWindowOptions.webPreferences));
+});
+
+test('sem hostsExtra, todas as janelas novas são negadas (fase 3)', () => {
+  const { BrowserWindow, estado } = electronFalso();
+  criarJanela(7, { BrowserWindow });
+  assert.deepEqual(estado.abrir({ url: 'https://cdn.safecharge.com/x/sibs.html' }), { action: 'deny' });
+});
+
+test('a filha fica sem som, com o user agent do Chrome, só https e sem netas', () => {
+  const { BrowserWindow, estado } = electronFalso();
+  criarJanela(7, { BrowserWindow }, HOSTS);
+  const f = filhaFalsa();
+  estado.ouvintes['did-create-window'](f.janela, { url: 'https://cdn.safecharge.com/x/sibs.html' });
+  assert.equal(f.mudo, true);
+  assert.equal(f.ua, USER_AGENT);
+  for (const evento of ['will-navigate', 'will-redirect']) {
+    let impedido = false;
+    f.ouvintes[evento]({ preventDefault: () => { impedido = true; } }, 'http://cdn.safecharge.com/');
+    assert.ok(impedido, evento);
+    impedido = false;
+    f.ouvintes[evento]({ preventDefault: () => { impedido = true; } }, 'https://cdn.safecharge.com/y');
+    assert.ok(!impedido, evento);
+  }
+  assert.deepEqual(f.abrir({ url: 'https://cdn.safecharge.com/z' }), { action: 'deny' });
+});
+
+test('naJanelasNovas devolve a primeira resposta das filhas e ignora as que rebentam', async () => {
+  const { BrowserWindow, estado } = electronFalso();
+  const { driver } = criarJanela(7, { BrowserWindow }, HOSTS);
+  assert.equal(await driver.naJanelasNovas('lerReferenciaMB'), null);
+  const ma = filhaFalsa({ resposta: 'erro' });
+  const vazia = filhaFalsa({ resposta: null, frames: [{ url: 'https://cdn.safecharge.com/f', executeJavaScript: async () => ({ referencia: '123' }) }] });
+  estado.ouvintes['did-create-window'](ma.janela, {});
+  estado.ouvintes['did-create-window'](vazia.janela, {});
+  assert.deepEqual(await driver.naJanelasNovas('lerReferenciaMB'), { referencia: '123' });
+  assert.match(ma.executado[0], /\.\.\.\["lerReferenciaMB"\]/);
+});
+
+test('uma filha fechada sai da lista; fechar() destrói as filhas e a mãe e pode repetir-se', async () => {
+  const { BrowserWindow, estado } = electronFalso();
+  const j = criarJanela(7, { BrowserWindow }, HOSTS);
+  const fechada = filhaFalsa({ resposta: 'velha' });
+  const viva = filhaFalsa({ resposta: null });
+  estado.ouvintes['did-create-window'](fechada.janela, {});
+  estado.ouvintes['did-create-window'](viva.janela, {});
+  fechada.ouvintesJanela.closed();
+  assert.equal(await j.driver.naJanelasNovas('lerReferenciaMB'), null);
+  assert.equal(fechada.executado.length, 0);
+  j.fechar();
+  j.fechar();
+  assert.equal(viva.destruida, true);
+  assert.equal(estado.destruida, true);
+});
+
 test('limparParticoes apaga só as pastas op-*', async () => {
   const limpas = [];
   const session = { fromPartition: (p) => ({ clearStorageData: async () => { limpas.push(p); } }) };
