@@ -283,7 +283,8 @@ test('casino sem depósito automático falha sem navegar', async () => {
 });
 
 test('hostsExtraDe: os hosts da janela da referência', () => {
-  assert.deepEqual(hostsExtraDe('placard'), ['cdn.safecharge.com']);
+  // O caixa abre a janela em secure.safecharge.com/ppp/review.do (visto no depósito real de 2026-10-21).
+  assert.deepEqual(hostsExtraDe('placard'), ['secure.safecharge.com', 'cdn.safecharge.com']);
   assert.deepEqual(hostsExtraDe('betano'), []);
   assert.deepEqual(hostsExtraDe('nao-existe'), []);
 });

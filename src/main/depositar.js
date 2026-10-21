@@ -23,9 +23,10 @@ function codigoDoDeposito(parametros) {
   return String(parametros?.codigo ?? '').trim().slice(0, 60);
 }
 
-/** Hosts onde o caixa pode abrir a janela da referência. */
+/** Hosts onde o caixa pode abrir a janela da referência: o próprio caixa (abre-a em review.do) e os hostsExtra. */
 function hostsExtraDe(casino) {
-  return C.CASINOS[casino]?.depositar?.hostsExtra || [];
+  const cfg = C.CASINOS[casino]?.depositar;
+  return [...new Set([cfg?.caixaHost, ...(cfg?.hostsExtra || [])].filter(Boolean))];
 }
 
 /**
