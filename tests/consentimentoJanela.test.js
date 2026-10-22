@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { JSDOM } = require('jsdom');
-const { pedirConsentimento, FICHEIRO, PRELOAD, CANAL } = require('../src/main/consentimentoJanela');
+const { pedirConsentimento, ajustarAoConteudo, FICHEIRO, PRELOAD, CANAL } = require('../src/main/consentimentoJanela');
 
 const PEDIDO = { modo: 'pedido', titulo: 'Título', texto: 'Linha 1\n• item\n\nLinha 2', botoes: ['Aceito', 'Agora não'] };
 
@@ -15,7 +15,8 @@ function ambiente() {
   const estado = { opcoes: null, carregado: null, ouvintes: {}, fechou: false, mostrou: false, destruida: false };
   const wc = {
     on: (ev, f) => { estado.ouvintes[ev] = f; },
-    setWindowOpenHandler: (f) => { estado.abrir = f; }
+    setWindowOpenHandler: (f) => { estado.abrir = f; },
+    executeJavaScript: async () => estado.alturaNatural ?? 480
   };
   class BrowserWindow {
     constructor(opcoes) {
@@ -29,6 +30,8 @@ function ambiente() {
     loadFile(f, opcoes) { estado.carregado = { f, opcoes }; }
     show() { estado.mostrou = true; }
     focus() { estado.focou = true; }
+    setContentSize(w, h) { estado.tamanho = [w, h]; }
+    setPosition(x, y) { estado.posicao = [x, y]; }
     close() { estado.fechou = true; this.eventos.closed?.(); }
     isDestroyed() { return estado.destruida; }
   }
@@ -51,10 +54,49 @@ test('abre a janela modal, escondida até estar pronta, centrada sobre a princip
   assert.ok(o.parent);
   assert.equal(o.x, 100 + (1000 - o.width) / 2);
   assert.equal(estado.mostrou, false);
-  estado.janela.eventos['ready-to-show']();
+  await estado.janela.eventos['ready-to-show']();
   assert.equal(estado.mostrou, true);
   estado.janela.close();
   assert.equal(await p, false);
+});
+
+test('antes de mostrar, a altura acompanha o texto, sem passar do ecrã nem descer do mínimo', async () => {
+  const area = { x: 0, y: 0, width: 1920, height: 1040 };
+  for (const [natural, esperado] of [[652, 652], [5000, 1000], [120, 360]]) {
+    const { estado, deps } = ambiente();
+    estado.alturaNatural = natural;
+    const p = pedirConsentimento(PEDIDO, { ...deps, areaDoEcra: () => area });
+    await estado.janela.eventos['ready-to-show']();
+    assert.equal(estado.tamanho[1], esperado, String(natural));
+    assert.equal(estado.mostrou, true);
+    estado.janela.close();
+    await p;
+  }
+});
+
+test('se a medição falhar, mostra na mesma com a altura de partida', async () => {
+  const { estado, deps } = ambiente();
+  const p = pedirConsentimento(PEDIDO, deps);
+  estado.janela.webContents.executeJavaScript = async () => { throw new Error('x'); };
+  await estado.janela.eventos['ready-to-show']();
+  assert.equal(estado.mostrou, true);
+  assert.equal(estado.tamanho, undefined);
+  estado.janela.close();
+  await p;
+});
+
+test('ajustarAoConteudo volta a centrar sobre a janela principal', async () => {
+  const chamadas = {};
+  const win = {
+    isDestroyed: () => false,
+    webContents: { executeJavaScript: async () => 500 },
+    setContentSize: (w, h) => { chamadas.tamanho = [w, h]; },
+    setPosition: (x, y) => { chamadas.posicao = [x, y]; }
+  };
+  const pai = { getBounds: () => ({ x: 100, y: 50, width: 1000, height: 800 }) };
+  await ajustarAoConteudo(win, pai, { areaDoEcra: () => ({ x: 0, y: 0, width: 1920, height: 1040 }) });
+  assert.equal(chamadas.tamanho[1], 500);
+  assert.deepEqual(chamadas.posicao, [100 + (1000 - chamadas.tamanho[0]) / 2, 50 + (800 - 500) / 2]);
 });
 
 test('webPreferences: só o preload do consentimento, sem node, isolada e em sandbox', () => {
