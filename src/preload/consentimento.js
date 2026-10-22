@@ -7,11 +7,23 @@ window.addEventListener('DOMContentLoaded', () => {
   doc.title = q.get('titulo') || '';
   doc.getElementById('titulo').textContent = q.get('titulo') || '';
   const corpo = doc.getElementById('texto');
+  // Linhas com «•» seguidas formam uma lista; o parágrafo depois de uma lista é a nota final.
+  let lista = null;
+  let depoisDaLista = false;
   for (const linha of (q.get('texto') || '').split('\n')) {
     if (!linha.trim()) continue;
+    if (linha.startsWith('•')) {
+      if (!lista) lista = corpo.appendChild(doc.createElement('ul'));
+      const li = doc.createElement('li');
+      li.textContent = linha.replace(/^•\s*/, '');
+      lista.appendChild(li);
+      continue;
+    }
+    if (lista) depoisDaLista = true;
+    lista = null;
     const p = doc.createElement('p');
     p.textContent = linha;
-    if (linha.startsWith('•')) p.className = 'item';
+    if (depoisDaLista) p.className = 'nota';
     corpo.appendChild(p);
   }
   const aceitar = doc.getElementById('aceitar');
@@ -20,6 +32,5 @@ window.addEventListener('DOMContentLoaded', () => {
   recusar.textContent = q.get('recusar') || 'Agora não';
   aceitar.addEventListener('click', () => ipcRenderer.send('consentimento:responder', true));
   recusar.addEventListener('click', () => ipcRenderer.send('consentimento:responder', false));
-  // No pedido, Enter não aceita: o foco fica em «Agora não».
-  (q.get('modo') === 'pedido' ? recusar : aceitar).focus();
+  aceitar.focus();
 });

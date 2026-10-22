@@ -16,14 +16,6 @@ const TEXTO_CONSENTIMENTO = [
   'Só deves aceitar se concordares.'
 ].join('\n');
 
-const BOTOES = ['Aceito', 'Cancelar'];
+const BOTOES = ['Aceito', 'Agora não'];
 
-// Aviso ao abrir a app, uma vez por versão do texto; «Ver o pedido» abre o diálogo acima.
-const AVISO = {
-  titulo: 'Operações automáticas',
-  mensagem: 'O BCI pode usar este computador para operações automáticas',
-  detalhe: 'Só acontece se aceitares. Vês o pedido completo antes de decidir, e podes mudar de ideias em Definições a qualquer momento.',
-  botoes: ['Ver o pedido', 'Agora não']
-};
-
-module.exports = { VERSAO_TEXTO, TITULO, TEXTO_CONSENTIMENTO, BOTOES, AVISO };
+module.exports = { VERSAO_TEXTO, TITULO, TEXTO_CONSENTIMENTO, BOTOES };
