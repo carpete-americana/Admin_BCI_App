@@ -38,13 +38,24 @@ function encontrarBrowser({ env = process.env, existe = fs.existsSync, plataform
 // Sem os argumentos por omissão do puppeteer: o --enable-automation e afins punham navigator.webdriver a true.
 // Por isso o perfil (--user-data-dir) e a página inicial vão à mão em argsDe; o pipe o puppeteer acrescenta.
 const ARGS = [
-  '--window-position=-2400,-2400', '--window-size=1366,900', '--no-first-run', '--no-default-browser-check', '--mute-audio',
+  '--window-size=1366,900', '--no-first-run', '--no-default-browser-check', '--mute-audio',
   '--disable-blink-features=AutomationControlled', '--lang=pt-PT',
   // Fora do ecrã o Windows dava a janela por tapada e o Chrome abrandava a página.
   '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-background-timer-throttling',
   '--disable-features=CalculateNativeWinOcclusion'
 ];
-const argsDe = (perfil) => [...ARGS, `--user-data-dir=${perfil}`, 'about:blank'];
+const POSICAO = { x: -2400, y: -2400 };
+const argsDe = (perfil, { x, y } = POSICAO) => [...ARGS, `--window-position=${x},${y}`, `--user-data-dir=${perfil}`, 'about:blank'];
+
+/** Canto fora de todos os monitores: com um à esquerda ou acima do principal, -2400 caía num deles. */
+function posicaoFora(ecras) {
+  // Chrome e Electron podem contar em pixels ou em DIP conforme a escala: vale o menor dos dois.
+  const menor = (eixo) => Math.min(0, ...(ecras || []).flatMap(({ bounds, scaleFactor }) => {
+    const v = Number(bounds?.[eixo]);
+    return Number.isFinite(v) ? [v, v * (Number(scaleFactor) || 1)] : [];
+  }));
+  return { x: Math.round(menor('x')) - 2400, y: Math.round(menor('y')) - 2400 };
+}
 
 // O perfil não guarda passwords nem preenchimentos, recusa permissões e fala português.
 const PREFERENCIAS = {
@@ -106,7 +117,7 @@ async function soHttps(page) {
 
 /**
  * Abre o browser do casino e devolve { driver, fechar() }, como criarJanela.
- * deps: { puppeteer, browser: { exe }, pastaPerfis }. Janelas novas só para os hostsExtra do caixa (e subdomínios); as outras fecham-se.
+ * deps: { puppeteer, browser: { exe }, pastaPerfis, ecras?() }, com ecras() = screen.getAllDisplays(). Janelas novas só para os hostsExtra do caixa (e subdomínios); as outras fecham-se.
  */
 async function abrirBrowserReal(casino, deps, { hostsExtra = [] } = {}) {
   if (!/^[a-z0-9]{1,30}$/.test(String(casino))) throw new Error('casino inválido');
@@ -117,7 +128,7 @@ async function abrirBrowserReal(casino, deps, { hostsExtra = [] } = {}) {
 
   const lancar = puppeteer.launch({
     executablePath: escolhido.exe, headless: false, pipe: true, defaultViewport: null,
-    ignoreDefaultArgs: true, args: argsDe(perfil), timeout: ABRIR_MAX_MS
+    ignoreDefaultArgs: true, args: argsDe(perfil, posicaoFora(deps.ecras?.())), timeout: ABRIR_MAX_MS
   });
   let browser;
   try {
@@ -232,11 +243,12 @@ async function limparPerfis(pastaPerfis, { fsMod = fs } = {}) {
   let apagados = 0;
   for (const nome of nomes.filter(n => n.startsWith(PREFIXO_PERFIL))) {
     try {
-      await fsMod.promises.rm(path.join(pastaPerfis, nome), { recursive: true, force: true });
+      // O Chrome que acabou de fechar ainda pode prender ficheiros uns instantes.
+      await fsMod.promises.rm(path.join(pastaPerfis, nome), { recursive: true, force: true, maxRetries: 5, retryDelay: 400 });
       apagados++;
     } catch (e) { /* aberto agora: fica para a próxima limpeza */ }
   }
   return apagados;
 }
 
-module.exports = { encontrarBrowser, abrirBrowserReal, prepararPerfil, limparPerfis, ARGS, argsDe, PREFERENCIAS, hostPermitido };
+module.exports = { encontrarBrowser, abrirBrowserReal, prepararPerfil, limparPerfis, ARGS, argsDe, posicaoFora, PREFERENCIAS, hostPermitido };

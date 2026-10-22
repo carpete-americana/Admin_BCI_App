@@ -1,7 +1,7 @@
 require('dotenv').config();
 const os = require('os');
 const crypto = require('crypto');
-const { app, globalShortcut, ipcMain, BrowserWindow, safeStorage, session } = require('electron');
+const { app, globalShortcut, ipcMain, BrowserWindow, safeStorage, session, screen } = require('electron');
 const ElectronStorage = require('../../js/storage');
 const { DEBUG, API_CONFIG } = require('./config');
 const cache = require('./cache');
@@ -41,7 +41,7 @@ const dispositivo = criarDispositivo({
     criarJanela: async (casino, opcoes) => {
       const browser = encontrarBrowser();
       if (!browser) throw new Error('sem Chrome nem Edge');
-      return abrirBrowserReal(casino, { puppeteer, browser, pastaPerfis: particoes.userData }, opcoes);
+      return abrirBrowserReal(casino, { puppeteer, browser, pastaPerfis: particoes.userData, ecras: () => screen.getAllDisplays() }, opcoes);
     },
     levantar: levantarDaConta,
     depositar: depositarDaConta

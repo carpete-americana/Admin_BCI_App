@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { encontrarBrowser, abrirBrowserReal, prepararPerfil, limparPerfis, argsDe, ARGS, hostPermitido } = require('../src/main/browserReal');
+const { encontrarBrowser, abrirBrowserReal, prepararPerfil, limparPerfis, argsDe, posicaoFora, ARGS, hostPermitido } = require('../src/main/browserReal');
 
 const ENV = { ProgramFiles: 'C:\\Program Files', 'ProgramFiles(x86)': 'C:\\Program Files (x86)', LOCALAPPDATA: 'C:\\Users\\x\\AppData\\Local' };
 const so = (...exes) => (e) => exes.includes(e);
@@ -32,6 +32,15 @@ test('os argumentos levam o perfil e não o modo de automação', () => {
   assert.ok(args.includes('--user-data-dir=C:\\p\\op-casa-placard'));
   assert.ok(args.includes('--disable-blink-features=AutomationControlled'));
   assert.ok(!ARGS.some(a => /enable-automation|remote-debugging/.test(a)));
+  assert.ok(args.includes('--window-position=-2400,-2400'));
+});
+
+test('a janela fica fora de todos os monitores, também com um à esquerda ou acima do principal', () => {
+  assert.deepEqual(posicaoFora([{ bounds: { x: 0, y: 0 }, scaleFactor: 1 }]), { x: -2400, y: -2400 });
+  // Monitor à esquerda com escala 150%: conta o maior recuo, em pixels.
+  assert.deepEqual(posicaoFora([{ bounds: { x: 0, y: 0 }, scaleFactor: 1 }, { bounds: { x: -1920, y: -300 }, scaleFactor: 1.5 }]), { x: -5280, y: -2850 });
+  for (const nada of [undefined, [], [{ bounds: {} }]]) assert.deepEqual(posicaoFora(nada), { x: -2400, y: -2400 });
+  assert.ok(argsDe('p', { x: -5280, y: -2850 }).includes('--window-position=-5280,-2850'));
 });
 
 test('hostPermitido: o host ou um subdomínio, só https', () => {
