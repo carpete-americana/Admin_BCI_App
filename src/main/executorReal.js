@@ -79,7 +79,7 @@ function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, sair =
     let r;
     let acabou = false;
     try {
-      janela = criarJanela(casino, { hostsExtra: tipo === 'depositar' ? hostsExtraDe(casino) : [] });
+      janela = await criarJanela(casino, { hostsExtra: tipo === 'depositar' ? hostsExtraDe(casino) : [] });
       const limite = new Promise((resolve) => {
         temporizador = setTimeoutFn(() => resolve({ estado: 'verificar', fase: 'tempo', motivo: 'Passou o tempo máximo — vê no casino se ficou feito' }), TEMPO_MAX_REAL_MS);
       });
@@ -103,7 +103,7 @@ function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, sair =
         await Promise.race([Promise.resolve().then(() => sair(janela.driver, casino, dados.fluxo ?? null)).catch(() => null), teto]);
         clearTimeoutFn(fim);
       }
-      janela?.fechar();
+      await janela?.fechar();
     }
 
     const { estado, resultado } = resultadoDe(r, tipo);

@@ -1,7 +1,7 @@
 {
   "name": "bci-admin",
   "productName": "BCI Admin",
-  "version": "1.6.3",
+  "version": "1.7.0",
   "description": "Aplicação de administração oficial BCI",
   "keywords": [
     "bci",
@@ -32,7 +32,8 @@
   "dependencies": {
     "dotenv": "^16.5.0",
     "electron-log": "^5.4.4",
-    "electron-updater": "^6.8.9"
+    "electron-updater": "^6.8.9",
+    "puppeteer-core": "^25.16.0"
   },
   "devDependencies": {
     "electron": "^44.4.5",

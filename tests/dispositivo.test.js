@@ -387,6 +387,15 @@ function rotasTarefa(tarefa, registo) {
 
 const semEspera = { esperar: async () => {}, aleatorio: () => 0, registar: () => {} };
 
+test('sem Chrome nem Edge o registo e o sinal não anunciam levantamentos nem depósitos', async () => {
+  const c = cenario({ extra: { ...semEspera, contasReais: () => false } });
+  await c.d.aceitar();
+  assert.deepEqual(c.posts()[0].corpo.capacidades, ['tarefas-v1', 'pacotes-v1']);
+  c.d.iniciar();
+  await c.tique().fn();
+  assert.deepEqual(c.posts().filter(p => /sinal$/.test(p.caminho)).at(-1).corpo.capacidades, ['tarefas-v1', 'pacotes-v1']);
+});
+
 test('o registo e o sinal declaram tarefas e pacotes, e levam o identificador cifrado da máquina', async () => {
   const c = cenario({ extra: semEspera });
   await c.d.aceitar();
