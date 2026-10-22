@@ -10,7 +10,14 @@ const path = require('node:path');
 
 const LARGURA = 540;
 const ALTURA = 600;
+const ALTURA_MIN = 360;
+const MARGEM_ECRA = 40;
 const CANAL = 'consentimento:responder';
+// Altura sem scroll: a da janela, menos a parte visível do texto, mais o texto todo. Espera pela letra.
+const MEDIR = `document.fonts.ready.then(() => {
+  const t = document.getElementById('texto');
+  return document.documentElement.clientHeight - t.clientHeight + t.scrollHeight;
+})`;
 const FICHEIRO = path.join(__dirname, '..', '..', 'public', 'consentimento.html');
 const PRELOAD = path.join(__dirname, '..', 'preload', 'consentimento.js');
 
@@ -54,7 +61,12 @@ function pedirConsentimento({ modo, titulo, texto, botoes }, deps) {
   // Nada sai desta janela: nem navegação nem janelas novas.
   wc.on('will-navigate', (event) => event.preventDefault());
   wc.setWindowOpenHandler(() => ({ action: 'deny' }));
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', async () => {
+    try {
+      await ajustarAoConteudo(win, pai, deps);
+    } catch (e) { /* fica com a altura de partida */ }
+    if (!win.isDestroyed()) win.show();
+  });
 
   let terminar;
   const promessa = new Promise((resolve) => {
@@ -82,4 +94,20 @@ function pedirConsentimento({ modo, titulo, texto, botoes }, deps) {
   return promessa;
 }
 
-module.exports = { pedirConsentimento, FICHEIRO, PRELOAD, CANAL };
+/** Cresce ou encolhe até caber o texto todo, sem passar da área útil do ecrã; volta a centrar. */
+async function ajustarAoConteudo(win, pai, deps) {
+  const natural = Number(await win.webContents.executeJavaScript(MEDIR, true));
+  if (!Number.isFinite(natural) || win.isDestroyed()) return;
+  const area = deps.areaDoEcra?.() || null;
+  const maxima = area ? area.height - MARGEM_ECRA : Infinity;
+  const altura = Math.round(Math.max(ALTURA_MIN, Math.min(natural, maxima)));
+  win.setContentSize(LARGURA, altura);
+  const ref = pai ? pai.getBounds() : area;
+  if (!ref) return;
+  const x = Math.round(ref.x + (ref.width - LARGURA) / 2);
+  let y = Math.round(ref.y + (ref.height - altura) / 2);
+  if (area) y = Math.max(area.y + MARGEM_ECRA / 2, Math.min(y, area.y + area.height - altura - MARGEM_ECRA / 2));
+  win.setPosition(x, y);
+}
+
+module.exports = { pedirConsentimento, ajustarAoConteudo, FICHEIRO, PRELOAD, CANAL };

@@ -1,7 +1,7 @@
 require('dotenv').config();
 const os = require('os');
 const crypto = require('crypto');
-const { app, globalShortcut, ipcMain, BrowserWindow, safeStorage, session } = require('electron');
+const { app, globalShortcut, ipcMain, BrowserWindow, safeStorage, session, screen } = require('electron');
 const ElectronStorage = require('../../js/storage');
 const { DEBUG, API_CONFIG } = require('./config');
 const cache = require('./cache');
@@ -48,7 +48,11 @@ const dispositivo = criarDispositivo({
   pedirConsentimento: (pedido) => pedirConsentimento(pedido, {
     BrowserWindow,
     ipcMain,
-    janelaPai: () => (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow : null)
+    janelaPai: () => (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow : null),
+    areaDoEcra: () => {
+      const ref = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow.getBounds() : null;
+      return (ref ? screen.getDisplayMatching(ref) : screen.getPrimaryDisplay()).workArea;
+    }
   }),
   tray: { setOperacoes: (ligado) => tray.setOperacoes(ligado) },
   versoes: { so: `${process.platform} ${os.release()}`, electron: process.versions.electron },
