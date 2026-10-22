@@ -39,28 +39,34 @@ function electronFalso({ frames = [], loadURL, session = sessaoFalsa() } = {}) {
   return { BrowserWindow, estado };
 }
 
-test('abre escondida, sem preload e com o browser só desta conta', () => {
+test('abre escondida, sem preload e com o browser do casino, partilhado pelas contas dele', () => {
   const { BrowserWindow, estado } = electronFalso();
-  criarJanela(7, { BrowserWindow });
+  criarJanela('placard', { BrowserWindow });
   const w = estado.opcoes.webPreferences;
   assert.equal(estado.opcoes.show, false);
-  assert.equal(w.partition, 'persist:op-7');
+  assert.equal(w.partition, 'persist:op-casa-placard');
   assert.equal(w.nodeIntegration, false);
   assert.equal(w.contextIsolation, true);
   assert.equal(w.sandbox, true);
   assert.ok(!('preload' in w));
 });
 
+test('casino com caracteres fora de [a-z0-9] não abre janela', () => {
+  const { BrowserWindow, estado } = electronFalso();
+  for (const c of ['../x', 'Placard', '', 'pla card']) assert.throws(() => criarJanela(c, { BrowserWindow }), /casino inválido/);
+  assert.equal(estado.opcoes, null);
+});
+
 test('abre com tamanho de computador: abaixo disto o casino esconde o «Depositar» que confirma o login', () => {
   const { BrowserWindow, estado } = electronFalso();
-  criarJanela(7, { BrowserWindow });
+  criarJanela('placard', { BrowserWindow });
   assert.ok(estado.opcoes.width >= 1280, `largura ${estado.opcoes.width}`);
   assert.ok(estado.opcoes.height >= 800, `altura ${estado.opcoes.height}`);
 });
 
 test('a sessão da conta recusa todas as permissões e cancela downloads; a janela não tem som', () => {
   const { BrowserWindow, estado } = electronFalso();
-  criarJanela(7, { BrowserWindow });
+  criarJanela('placard', { BrowserWindow });
   const s = estado.session;
   assert.equal(estado.mudo, true);
   for (const p of ['media', 'notifications', 'geolocation', 'clipboard-read']) {
@@ -78,15 +84,15 @@ test('a sessão da conta recusa todas as permissões e cancela downloads; a jane
 test('a mesma sessão (mesma conta) só é preparada uma vez', () => {
   const session = sessaoFalsa();
   const a = electronFalso({ session });
-  criarJanela(7, { BrowserWindow: a.BrowserWindow });
-  criarJanela(7, { BrowserWindow: a.BrowserWindow });
+  criarJanela('placard', { BrowserWindow: a.BrowserWindow });
+  criarJanela('placard', { BrowserWindow: a.BrowserWindow });
   assert.equal(session.registos, 1);
   assert.equal(session.ouvintes['will-download'].length, 1);
 });
 
 test('o user agent é o do Chrome, sem Electron', () => {
   const { BrowserWindow, estado } = electronFalso();
-  criarJanela(7, { BrowserWindow });
+  criarJanela('placard', { BrowserWindow });
   assert.equal(estado.ua, USER_AGENT);
   assert.doesNotMatch(USER_AGENT, /Electron/);
   assert.match(USER_AGENT, /^Mozilla\/5\.0 \(Windows NT 10\.0; Win64; x64\) AppleWebKit\/537\.36 \(KHTML, like Gecko\) Chrome\/\S+ Safari\/537\.36$/);
@@ -94,7 +100,7 @@ test('o user agent é o do Chrome, sem Electron', () => {
 
 test('navegações para fora de https são impedidas e janelas novas negadas', () => {
   const { BrowserWindow, estado } = electronFalso();
-  criarJanela(7, { BrowserWindow });
+  criarJanela('placard', { BrowserWindow });
   for (const evento of ['will-navigate', 'will-redirect']) {
     for (const url of ['http://exemplo.pt/', 'file:///C:/x', 'javascript:alert(1)']) {
       let impedido = false;
@@ -110,16 +116,16 @@ test('navegações para fora de https são impedidas e janelas novas negadas', (
 
 test('navegar só aceita https e um ERR_ABORTED não é falha', async () => {
   const abortada = electronFalso({ loadURL: async () => { throw Object.assign(new Error('abortado'), { code: 'ERR_ABORTED' }); } });
-  const { driver } = criarJanela(7, { BrowserWindow: abortada.BrowserWindow });
+  const { driver } = criarJanela('placard', { BrowserWindow: abortada.BrowserWindow });
   await driver.navegar('https://www.placard.pt/');
   await assert.rejects(driver.navegar('http://www.placard.pt/'));
   const semRede = electronFalso({ loadURL: async () => { throw Object.assign(new Error('sem rede'), { code: 'ERR_INTERNET_DISCONNECTED' }); } });
-  await assert.rejects(criarJanela(7, { BrowserWindow: semRede.BrowserWindow }).driver.navegar('https://www.placard.pt/'));
+  await assert.rejects(criarJanela('placard', { BrowserWindow: semRede.BrowserWindow }).driver.navegar('https://www.placard.pt/'));
 });
 
 test('naPagina leva a função e os argumentos como texto, com o pagina.js', async () => {
   const { BrowserWindow, estado } = electronFalso();
-  const { driver } = criarJanela(7, { BrowserWindow });
+  const { driver } = criarJanela('placard', { BrowserWindow });
   assert.equal(await driver.naPagina('lerSaldo', '.saldo'), 'principal');
   assert.match(estado.executado[0], /__bciPagina/);
   assert.match(estado.executado[0], /\.\.\.\["lerSaldo",".saldo"\]/);
@@ -138,7 +144,7 @@ test('naCaixa corre só nos frames do host do caixa e ignora os que rebentam', a
     frame('https://secure.safecharge.com/b', { ok: true })
   ];
   const { BrowserWindow } = electronFalso({ frames });
-  const { driver } = criarJanela(7, { BrowserWindow });
+  const { driver } = criarJanela('placard', { BrowserWindow });
   const r = await driver.naCaixa('prepararLevantamento', { caixaHost: 'secure.safecharge.com' }, 20);
   assert.deepEqual(r, { ok: true });
   assert.deepEqual(chamados, ['https://secure.safecharge.com/a', 'https://secure.safecharge.com/b']);
@@ -149,15 +155,15 @@ test('naCaixa: se nenhum frame respondeu e algum rebentou, lança; sem frames do
     url, executeJavaScript: async () => { if (resposta === 'erro') throw new Error('x'); return resposta; }
   });
   const host = { caixaHost: 'secure.safecharge.com' };
-  const rebenta = criarJanela(7, electronFalso({ frames: [frame('https://secure.safecharge.com/a', 'erro'), frame('https://secure.safecharge.com/b', null)] })).driver;
+  const rebenta = criarJanela('placard', electronFalso({ frames: [frame('https://secure.safecharge.com/a', 'erro'), frame('https://secure.safecharge.com/b', null)] })).driver;
   await assert.rejects(rebenta.naCaixa('confirmarLevantamento', host));
-  const nenhum = criarJanela(7, electronFalso({ frames: [frame('https://www.placard.pt/', 'erro')] })).driver;
+  const nenhum = criarJanela('placard', electronFalso({ frames: [frame('https://www.placard.pt/', 'erro')] })).driver;
   assert.equal(await nenhum.naCaixa('confirmarLevantamento', host), null);
 });
 
 test('fechar destrói a janela e pode repetir-se', () => {
   const { BrowserWindow, estado } = electronFalso();
-  const j = criarJanela(7, { BrowserWindow });
+  const j = criarJanela('placard', { BrowserWindow });
   j.fechar();
   j.fechar();
   assert.equal(estado.destruida, true);
@@ -190,7 +196,7 @@ const HOSTS = { hostsExtra: ['cdn.safecharge.com'] };
 
 test('janela nova: só https e só os hosts exatos de hostsExtra, com as mesmas webPreferences e sem preload', () => {
   const { BrowserWindow, estado } = electronFalso();
-  criarJanela(7, { BrowserWindow }, HOSTS);
+  criarJanela('placard', { BrowserWindow }, HOSTS);
   for (const url of ['https://evil.example/', 'http://cdn.safecharge.com/', 'https://cdn.safecharge.com.evil.example/',
     'https://evilcdn.safecharge.com/', 'javascript:alert(1)', 'nada']) {
     assert.deepEqual(estado.abrir({ url }), { action: 'deny' }, url);
@@ -200,7 +206,7 @@ test('janela nova: só https e só os hosts exatos de hostsExtra, com as mesmas 
     action: 'allow',
     overrideBrowserWindowOptions: {
       show: false,
-      webPreferences: { partition: 'persist:op-7', sandbox: true, contextIsolation: true, nodeIntegration: false }
+      webPreferences: { partition: 'persist:op-casa-placard', sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false }
     }
   });
   assert.ok(!('preload' in r.overrideBrowserWindowOptions.webPreferences));
@@ -208,7 +214,7 @@ test('janela nova: só https e só os hosts exatos de hostsExtra, com as mesmas 
 
 test('um domínio em hostsExtra aceita os subdomínios, nunca nomes parecidos nem http', () => {
   const { BrowserWindow, estado } = electronFalso();
-  criarJanela(7, { BrowserWindow }, { hostsExtra: ['safecharge.com'] });
+  criarJanela('placard', { BrowserWindow }, { hostsExtra: ['safecharge.com'] });
   for (const url of ['https://secure.safecharge.com/ppp/review.do', 'https://cdn.safecharge.com/x/sibs.html', 'https://safecharge.com/']) {
     assert.equal(estado.abrir({ url }).action, 'allow', url);
   }
@@ -219,13 +225,13 @@ test('um domínio em hostsExtra aceita os subdomínios, nunca nomes parecidos ne
 
 test('sem hostsExtra, todas as janelas novas são negadas (fase 3)', () => {
   const { BrowserWindow, estado } = electronFalso();
-  criarJanela(7, { BrowserWindow });
+  criarJanela('placard', { BrowserWindow });
   assert.deepEqual(estado.abrir({ url: 'https://cdn.safecharge.com/x/sibs.html' }), { action: 'deny' });
 });
 
 test('a filha fica sem som, com o user agent do Chrome, só https e sem netas', () => {
   const { BrowserWindow, estado } = electronFalso();
-  criarJanela(7, { BrowserWindow }, HOSTS);
+  criarJanela('placard', { BrowserWindow }, HOSTS);
   const f = filhaFalsa();
   estado.ouvintes['did-create-window'](f.janela, { url: 'https://cdn.safecharge.com/x/sibs.html' });
   assert.equal(f.mudo, true);
@@ -243,7 +249,7 @@ test('a filha fica sem som, com o user agent do Chrome, só https e sem netas', 
 
 test('naJanelasNovas devolve a primeira resposta das filhas e ignora as que rebentam', async () => {
   const { BrowserWindow, estado } = electronFalso();
-  const { driver } = criarJanela(7, { BrowserWindow }, HOSTS);
+  const { driver } = criarJanela('placard', { BrowserWindow }, HOSTS);
   assert.equal(await driver.naJanelasNovas('lerReferenciaMB'), null);
   const ma = filhaFalsa({ resposta: 'erro' });
   const vazia = filhaFalsa({ resposta: null, frames: [{ url: 'https://cdn.safecharge.com/f', executeJavaScript: async () => ({ referencia: '123' }) }] });
@@ -255,7 +261,7 @@ test('naJanelasNovas devolve a primeira resposta das filhas e ignora as que rebe
 
 test('uma filha fechada sai da lista; fechar() destrói as filhas e a mãe e pode repetir-se', async () => {
   const { BrowserWindow, estado } = electronFalso();
-  const j = criarJanela(7, { BrowserWindow }, HOSTS);
+  const j = criarJanela('placard', { BrowserWindow }, HOSTS);
   const fechada = filhaFalsa({ resposta: 'velha' });
   const viva = filhaFalsa({ resposta: null });
   estado.ouvintes['did-create-window'](fechada.janela, {});
@@ -272,7 +278,7 @@ test('uma filha fechada sai da lista; fechar() destrói as filhas e a mãe e pod
 test('limparParticoes apaga só as pastas op-*', async () => {
   const limpas = [];
   const session = { fromPartition: (p) => ({ clearStorageData: async () => { limpas.push(p); } }) };
-  const n = await limparParticoes({ listarParticoes: async () => ['op-3', 'op-9', 'outra', 'Cache', 'op'], session });
+  const n = await limparParticoes({ listarParticoes: async () => ['op-3', 'op-casa-placard', 'outra', 'Cache', 'op'], session });
   assert.equal(n, 2);
-  assert.deepEqual(limpas, ['persist:op-3', 'persist:op-9']);
+  assert.deepEqual(limpas, ['persist:op-3', 'persist:op-casa-placard']);
 });

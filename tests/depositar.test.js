@@ -47,7 +47,7 @@ function preparaCaixa({ depois, codigo }) {
   };
 }
 
-function cenario({ logado = true, depois = 'referencia', codigo = 'valido', aoChamar, ...resto } = {}) {
+function cenario({ logado = false, depois = 'referencia', codigo = 'valido', aoChamar, ...resto } = {}) {
   let dentro = logado;
   const paginas = {
     [LOGIN]: () => (dentro ? { html: ENTROU } : { html: FORMULARIO }),

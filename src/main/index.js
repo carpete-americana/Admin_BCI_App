@@ -36,7 +36,7 @@ const dispositivo = criarDispositivo({
   executorReal: criarExecutorReal({
     api: apiDados,
     raiz: (deviceId) => `/users/me/devices/${deviceId}`,
-    criarJanela: (accountId, opcoes) => criarJanela(accountId, { BrowserWindow }, opcoes),
+    criarJanela: (casino, opcoes) => criarJanela(casino, { BrowserWindow }, opcoes),
     levantar: levantarDaConta,
     depositar: depositarDaConta
   }),
