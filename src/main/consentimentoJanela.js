@@ -8,8 +8,8 @@
 
 const path = require('node:path');
 
-const LARGURA = 520;
-const ALTURA = 560;
+const LARGURA = 540;
+const ALTURA = 600;
 const CANAL = 'consentimento:responder';
 const FICHEIRO = path.join(__dirname, '..', '..', 'public', 'consentimento.html');
 const PRELOAD = path.join(__dirname, '..', 'preload', 'consentimento.js');
@@ -40,6 +40,7 @@ function pedirConsentimento({ modo, titulo, texto, botoes }, deps) {
     parent: pai || undefined,
     modal: !!pai,
     show: false,
+    frame: false,
     resizable: false,
     minimizable: false,
     maximizable: false,

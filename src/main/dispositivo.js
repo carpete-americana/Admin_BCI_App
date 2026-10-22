@@ -8,7 +8,7 @@
  */
 
 const crypto = require('node:crypto');
-const { VERSAO_TEXTO, TITULO, TEXTO_CONSENTIMENTO, BOTOES, AVISO } = require('./dispositivo-texto');
+const { VERSAO_TEXTO, TITULO, TEXTO_CONSENTIMENTO, BOTOES } = require('./dispositivo-texto');
 const executorFicticio = require('./executorFicticio');
 const { TEMPO_MAX_REAL_MS } = require('./executorReal');
 
@@ -181,7 +181,7 @@ function criarDispositivo(deps) {
   }
 
   /**
-   * Ao abrir a app: com a funcionalidade ligada e sem consentimento válido, um aviso leva ao pedido, no máximo uma vez por dia.
+   * Ao abrir a app: com a funcionalidade ligada e sem consentimento válido, mostra o pedido, no máximo uma vez por dia.
    * Marca-se só neste computador (nada vai à API antes de aceitar); sem sessão, janela escondida ou sem rede não marca.
    */
   function perguntarSeFaltar() {
@@ -202,8 +202,6 @@ function criarDispositivo(deps) {
     if (reg?.perguntadoEm === hoje) return nao;
 
     await storage.setItem(s.chave, { ...(reg || {}), perguntadoEm: hoje });
-    const quer = await pedirConsentimento({ modo: 'aviso', titulo: AVISO.titulo, texto: `${AVISO.mensagem}\n\n${AVISO.detalhe}`, botoes: AVISO.botoes });
-    if (!quer) return { mostrado: true, aceite: false };
     const r = await aceitar();
     return { mostrado: true, aceite: r.ok };
   }

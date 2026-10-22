@@ -9,7 +9,7 @@ const path = require('node:path');
 const { JSDOM } = require('jsdom');
 const { pedirConsentimento, FICHEIRO, PRELOAD, CANAL } = require('../src/main/consentimentoJanela');
 
-const PEDIDO = { modo: 'pedido', titulo: 'Título', texto: 'Linha 1\n• item\n\nLinha 2', botoes: ['Aceito', 'Cancelar'] };
+const PEDIDO = { modo: 'pedido', titulo: 'Título', texto: 'Linha 1\n• item\n\nLinha 2', botoes: ['Aceito', 'Agora não'] };
 
 function ambiente() {
   const estado = { opcoes: null, carregado: null, ouvintes: {}, fechou: false, mostrou: false, destruida: false };
@@ -162,17 +162,24 @@ test('o preload monta o texto por textContent: marcas HTML não viram elementos'
   const q = new URLSearchParams({ titulo: '<b>T</b>', texto: 'um <img src=x onerror=1>\n\n• dois', aceitar: 'Aceito', recusar: 'Cancelar' });
   const { doc } = correrPreload(q.toString());
   assert.equal(doc.getElementById('titulo').textContent, '<b>T</b>');
-  assert.equal(doc.querySelectorAll('#texto p').length, 2);
+  assert.equal(doc.querySelectorAll('#texto p').length, 1);
+  assert.equal(doc.querySelectorAll('#texto ul > li').length, 1);
+  assert.equal(doc.querySelector('#texto li').textContent, 'dois', 'a marca «•» sai do texto');
   assert.equal(doc.querySelectorAll('img, b').length, 0);
   assert.equal(doc.getElementById('aceitar').textContent, 'Aceito');
   assert.equal(doc.getElementById('recusar').textContent, 'Cancelar');
 });
 
-test('no pedido o foco fica em «Agora não»; no aviso em «Ver o pedido»', () => {
+test('o foco começa em «Aceito»', () => {
   const pedido = correrPreload(new URLSearchParams({ modo: 'pedido', titulo: 'T', texto: 'x', aceitar: 'A', recusar: 'R' }).toString());
-  assert.equal(pedido.doc.activeElement?.id, 'recusar');
-  const aviso = correrPreload(new URLSearchParams({ modo: 'aviso', titulo: 'T', texto: 'x', aceitar: 'A', recusar: 'R' }).toString());
-  assert.equal(aviso.doc.activeElement?.id, 'aceitar');
+  assert.equal(pedido.doc.activeElement?.id, 'aceitar');
+});
+
+test('a janela não tem moldura nem botão de fechar', () => {
+  const { estado, deps } = ambiente();
+  pedirConsentimento(PEDIDO, deps);
+  assert.equal(estado.opcoes.frame, false);
+  estado.janela.close();
 });
 
 test('os botões respondem true e false pelo canal certo', () => {
