@@ -17,7 +17,9 @@ const { criarDispositivo } = require('./dispositivo');
 const { pedirConsentimento } = require('./consentimentoJanela');
 const { criarApi } = require('./apiDados');
 const { criarExecutorReal } = require('./executorReal');
-const { criarJanela, limparParticoes } = require('./janelaEscondida');
+const puppeteer = require('puppeteer-core');
+const { limparParticoes } = require('./janelaEscondida');
+const { encontrarBrowser, abrirBrowserReal, limparPerfis } = require('./browserReal');
 const { levantarDaConta } = require('./levantar');
 const { depositarDaConta } = require('./depositar');
 
@@ -36,11 +38,17 @@ const dispositivo = criarDispositivo({
   executorReal: criarExecutorReal({
     api: apiDados,
     raiz: (deviceId) => `/users/me/devices/${deviceId}`,
-    criarJanela: (casino, opcoes) => criarJanela(casino, { BrowserWindow }, opcoes),
+    criarJanela: async (casino, opcoes) => {
+      const browser = encontrarBrowser();
+      if (!browser) throw new Error('sem Chrome nem Edge');
+      return abrirBrowserReal(casino, { puppeteer, browser, pastaPerfis: particoes.userData, ecras: () => screen.getAllDisplays() }, opcoes);
+    },
     levantar: levantarDaConta,
     depositar: depositarDaConta
   }),
-  limparParticoes: () => limparParticoes(particoes),
+  contasReais: () => encontrarBrowser() !== null,
+  // Os perfis do Chrome e as partições antigas do Electron guardam sessões: saem juntos.
+  limparParticoes: async () => (await limparPerfis(particoes.userData)) + (await limparParticoes(particoes)),
   lerToken: lerTokenDoAdmin,
   storage: ElectronStorage,
   safeStorage,
