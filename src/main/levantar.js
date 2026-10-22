@@ -19,6 +19,11 @@ const SCRIPT_LEVANTAR = `(() => {
       const pw = P.encontrarCampo(seletores.password);
       const user = P.encontrarCampo(seletores.username) || P.usernamePerto(pw);
       return { username: !!user && P.preencher(user, username), password: !!pw && P.preencher(pw, password) };
+    },
+    // Alguns sites limpam a password depois da verificação anti-robô.
+    passwordVazia(seletores) {
+      const pw = globalThis.__bciPagina.encontrarCampo(seletores.password);
+      return !!pw && !pw.value;
     }
   };
 })();`;

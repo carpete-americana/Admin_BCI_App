@@ -11,7 +11,7 @@ const SENHA = vetor.texto;
 const TAREFA = { tarefaId: vetor.tarefaId, accountId: 7, casino: 'Placard', parametros: { modo: 'igual', valor: 20, minimo: 10 } };
 const ENTREGA = { ...vetor.entrega, username: 'joao', fluxo: null };
 
-function montar({ status = 200, motor, resposta, relogio = {}, deveParar } = {}) {
+function montar({ status = 200, motor, resposta, relogio = {}, deveParar, sair } = {}) {
   const registo = [];
   const api = {
     post: async (rota, corpo) => {
@@ -26,7 +26,7 @@ function montar({ status = 200, motor, resposta, relogio = {}, deveParar } = {})
     concluir: async (estado, resultado) => registo.push({ io: 'concluir', estado, resultado })
   };
   const janela = { driver: { id: 'driver' }, fechar: () => registo.push({ janela: 'fechar' }) };
-  const chamadas = { criarJanela: [], levantar: [], depositar: [] };
+  const chamadas = { criarJanela: [], levantar: [], depositar: [], sair: [] };
   const executar = criarExecutorReal({
     api,
     raiz: (deviceId) => `/users/me/devices/${deviceId}`,
@@ -43,6 +43,11 @@ function montar({ status = 200, motor, resposta, relogio = {}, deveParar } = {})
       registo.push({ motor: 'depositar' });
       if (motor) return motor(driver, pedido, aoPasso);
       return { estado: 'feita', valor: 20, entidade: '21312', referencia: '123456789', validade: '2026-10-25', codigo: 'X1' };
+    },
+    sair: async (driver, casino, fluxo) => {
+      chamadas.sair.push([driver, casino, fluxo]);
+      registo.push({ sair: casino });
+      return sair ? sair() : null;
     },
     ...relogio
   });
@@ -71,11 +76,11 @@ test('o motor recebe deveParar ligado ao do contexto', async () => {
   assert.equal(p.deveParar(), true);
 });
 
-test('ordem: iniciar, credenciais, janela, motor, fechar, concluir', async () => {
+test('ordem: iniciar, credenciais, janela, motor, sair, fechar, concluir', async () => {
   const { executar, io, registo } = montar();
   await executar(TAREFA, io);
-  const ordem = registo.filter(x => x.io !== 'progresso').map(x => x.io || x.api || x.janela || x.motor);
-  assert.deepEqual(ordem, ['iniciar', `/users/me/devices/D1/tarefas/${TAREFA.tarefaId}/credenciais`, 'criar', 'levantar', 'fechar', 'concluir']);
+  const ordem = registo.filter(x => x.io !== 'progresso').map(x => x.io || x.api || x.janela || x.motor || (x.sair && 'sair'));
+  assert.deepEqual(ordem, ['iniciar', `/users/me/devices/D1/tarefas/${TAREFA.tarefaId}/credenciais`, 'criar', 'levantar', 'sair', 'fechar', 'concluir']);
 });
 
 test('o progresso chega pela ordem do motor', async () => {
@@ -188,8 +193,8 @@ test('tipo depositar vai ao depositar, com hostsExtra na janela, e deixa sair os
   await executar({ ...TAREFA, tipo: 'depositar', parametros: { valor: 20 } }, io);
   assert.equal(chamadas.levantar.length, 0);
   assert.equal(chamadas.depositar.length, 1);
-  const [conta, opcoes] = chamadas.criarJanela[0];
-  assert.equal(conta, 7);
+  const [casino, opcoes] = chamadas.criarJanela[0];
+  assert.equal(casino, 'placard');
   assert.ok(Array.isArray(opcoes.hostsExtra) && opcoes.hostsExtra.length > 0);
   const c = concluido(registo);
   assert.equal(c.estado, 'feita');
@@ -220,4 +225,49 @@ test('tipo desconhecido falha na fase tipo sem pedir a credencial', async () => 
   assert.equal(chamadas.criarJanela.length, 0);
   assert.equal(concluido(registo).estado, 'falhada');
   assert.equal(concluido(registo).resultado.fase, 'tipo');
+});
+
+// ---------- browser partilhado pelo casino ----------
+
+test('a janela é a do casino e o logout leva o driver, o casino e o fluxo', async () => {
+  const { executar, io, chamadas } = montar();
+  await executar(TAREFA, io);
+  assert.equal(chamadas.criarJanela[0][0], 'placard');
+  assert.deepEqual(chamadas.sair, [[{ id: 'driver' }, 'placard', null]]);
+});
+
+test('logout que falha ou rebenta não muda o resultado da tarefa', async () => {
+  for (const sair of [async () => ({ estado: 'falhada', fase: 'logout' }), async () => { throw new Error('x'); }]) {
+    const { executar, io, registo } = montar({ sair });
+    await executar(TAREFA, io);
+    assert.equal(concluido(registo).estado, 'feita');
+    assert.ok(registo.some(x => x.janela === 'fechar'));
+  }
+});
+
+test('logout preso: ao fim do teto fecha e conclui na mesma', async () => {
+  const tempos = [];
+  const { executar, io, registo } = montar({
+    sair: () => new Promise(() => {}),
+    relogio: { setTimeoutFn: (f, ms) => { tempos.push(ms); if (ms < TEMPO_MAX_REAL_MS) setImmediate(f); return tempos.length; }, clearTimeoutFn: () => {} }
+  });
+  await executar(TAREFA, io);
+  assert.ok(tempos.some(ms => ms < TEMPO_MAX_REAL_MS), 'tem teto próprio');
+  assert.equal(concluido(registo).estado, 'feita');
+});
+
+test('motor que não acabou (tempo esgotado) ou rebentou: não mexe na sessão', async () => {
+  let disparar;
+  const preso = montar({
+    motor: () => new Promise(() => {}),
+    relogio: { setTimeoutFn: (f) => { disparar = f; return 1; }, clearTimeoutFn: () => {} }
+  });
+  const fim = preso.executar(TAREFA, preso.io);
+  await new Promise(r => setImmediate(r));
+  disparar();
+  await fim;
+  assert.equal(preso.chamadas.sair.length, 0);
+  const rebentou = montar({ motor: async () => { throw new Error('x'); } });
+  await rebentou.executar(TAREFA, rebentou.io);
+  assert.equal(rebentou.chamadas.sair.length, 0);
 });

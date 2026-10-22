@@ -8,8 +8,11 @@
 const { decifrarEntrega } = require('./entregaCifra');
 const { chaveDoNome } = require('./levantar');
 const { hostsExtraDe } = require('./depositar');
+const { sair: sairDoCasino } = require('./sessaoCasino');
 
 const TEMPO_MAX_REAL_MS = 10 * 60 * 1000;
+// O logout no fim não pode prender o PC; se não acabar, a tarefa seguinte termina a sessão antes de entrar.
+const TEMPO_MAX_SAIR_MS = 45 * 1000;
 // Estimativa do que falta em cada passo, para o painel; o limite duro é o tempo máximo.
 const RESTANTE_SEG = { 'a-entrar': 120, 'a-abrir': 75, 'a-ler-saldo': 60, 'a-preencher': 40, 'a-levantar': 20 };
 const ESTADOS = ['feita', 'ensaio', 'saltada', 'falhada', 'verificar'];
@@ -37,7 +40,7 @@ function resultadoDe(r, tipo) {
  * e diz se o consentimento foi retirado a meio.
  * Devolve (tarefa, io, ctx) => Promise<void>, com a forma do executor fictício.
  */
-function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout }) {
+function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, sair = sairDoCasino, setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout }) {
   return async function executar(tarefa, io, ctx) {
     const id = Number(tarefa.tarefaId);
     await io.iniciar(150);
@@ -74,8 +77,9 @@ function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, setTim
     let temporizador = null;
     let terminado = false;
     let r;
+    let acabou = false;
     try {
-      janela = criarJanela(Number(tarefa.accountId), { hostsExtra: tipo === 'depositar' ? hostsExtraDe(casino) : [] });
+      janela = criarJanela(casino, { hostsExtra: tipo === 'depositar' ? hostsExtraDe(casino) : [] });
       const limite = new Promise((resolve) => {
         temporizador = setTimeoutFn(() => resolve({ estado: 'verificar', fase: 'tempo', motivo: 'Passou o tempo máximo — vê no casino se ficou feito' }), TEMPO_MAX_REAL_MS);
       });
@@ -85,13 +89,20 @@ function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, setTim
       }, async (passo) => {
         if (!terminado) await io.progresso?.(passo, RESTANTE_SEG[passo] ?? 60);
       });
-      r = await Promise.race([motor, limite]);
+      r = await Promise.race([motor.then((x) => { acabou = true; return x; }), limite]);
     } catch (e) {
       r = { estado: 'falhada', fase: 'janela', motivo: 'Não foi possível abrir a janela do casino' };
     } finally {
       terminado = true;
       credencial.password = null;
       if (temporizador) clearTimeoutFn(temporizador);
+      // O browser é partilhado pelas contas do casino: não fica aberta a sessão desta. Com o motor ainda a correr (tempo esgotado) não se mexe.
+      if (janela && acabou) {
+        let fim;
+        const teto = new Promise((resolve) => { fim = setTimeoutFn(resolve, TEMPO_MAX_SAIR_MS); });
+        await Promise.race([Promise.resolve().then(() => sair(janela.driver, casino, dados.fluxo ?? null)).catch(() => null), teto]);
+        clearTimeoutFn(fim);
+      }
       janela?.fechar();
     }
 

@@ -34,7 +34,7 @@ function preparaCaixa(mensagem) {
 }
 
 // Sessão iniciada no arranque, ou formulário que o clique em Entrar troca pela página de dentro.
-function cenario({ logado = true, saldo = '30.00 €', mensagem = 'O pedido de levantamento foi submetido com sucesso', depoisDoLogin, ...resto } = {}) {
+function cenario({ logado = false, saldo = '30.00 €', mensagem = 'O pedido de levantamento foi submetido com sucesso', depoisDoLogin, aoChamar, ...resto } = {}) {
   let dentro = logado;
   const paginas = {
     [HOME]: () => dentro
@@ -43,7 +43,10 @@ function cenario({ logado = true, saldo = '30.00 €', mensagem = 'O pedido de l
   };
   const driver = criarDriver({
     paginas,
-    aoChamar: (nome, d) => { if (nome === 'clicarEntrar' && !dentro && !depoisDoLogin) { dentro = true; d.abrir(HOME); } },
+    aoChamar: (nome, d) => {
+      if (nome === 'clicarEntrar' && !dentro && !depoisDoLogin) { dentro = true; d.abrir(HOME); }
+      aoChamar?.(nome, d);
+    },
     ...resto
   });
   return driver;
@@ -87,7 +90,7 @@ test('deveParar depois de carregar em Levantar já não pára: a conta acaba', a
   assert.equal(r.estado, 'feita');
 });
 
-test('sessão ativa e saldo lido: o ensaio devolve valor e iban e nunca confirma', async () => {
+test('saldo lido: o ensaio devolve valor e iban e nunca confirma', async () => {
   const d = cenario();
   const r = await levantarDaConta(d, pedido({ ensaio: true }));
   assert.equal(r.estado, 'ensaio');
@@ -95,7 +98,6 @@ test('sessão ativa e saldo lido: o ensaio devolve valor e iban e nunca confirma
   assert.equal(r.valor, 20);
   assert.equal(r.iban, '…2345');
   assert.ok(!d.nomes().includes('confirmarLevantamento'));
-  assert.ok(!d.nomes().includes('preencherLogin'));
 });
 
 test('fluxo completo: entra, prepara, confirma e lê o sucesso', async () => {
@@ -148,14 +150,14 @@ test('login recusado pelo site: falhada na fase login', async () => {
 
 // ---------- verificação de humano ----------
 
-test('captcha a decorrer no login: verificar e mais nada mexe na página', async () => {
+test('captcha que não acaba: espera, não volta a clicar e fica verificar', async () => {
   const d = criarDriver({ paginas: { [HOME]: { fixture: 'captcha-a-decorrer' } } });
   const r = await levantarDaConta(d, pedido());
   assert.equal(r.estado, 'verificar');
   assert.equal(r.fase, 'captcha');
   const n = d.nomes();
-  const i = n.lastIndexOf('captchaPendente');
-  assert.equal(i, n.length - 1, 'nenhuma chamada depois de ver o captcha');
+  assert.equal(n.filter(x => x === 'estadoLogin').length, 60);
+  assert.equal(n.filter(x => x === 'clicarEntrar').length, 1, 'só o clique inicial');
   assert.equal(n.filter(x => x === 'navegar').length, 1);
 });
 

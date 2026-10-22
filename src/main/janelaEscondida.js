@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * Janela escondida de uma conta, com o browser (partição) só dela, e o driver que o motor de levantamento usa.
+ * Janela escondida de uma tarefa, com o browser (partição) do casino partilhado pelas contas dele, e o driver que os motores usam.
+ * Um browser por conta era um visitante novo a cada login e o Cloudflare da Placard pedia a verificação de humano à 3.ª conta.
  * Sem `require('electron')`: o BrowserWindow e a sessão vêm por dependências, para testar com node --test.
  */
 
@@ -10,6 +11,8 @@ const path = require('node:path');
 const { correrNaPagina, FICHEIRO_PAGINA, SCRIPT_LEVANTAR } = require('./levantar');
 
 const PREFIXO_PARTICAO = 'op-';
+// As antigas, uma por conta (op-<id>), continuam a apagar-se com o mesmo prefixo.
+const particaoDe = (casino) => `persist:${PREFIXO_PARTICAO}casa-${casino}`;
 const NAVEGAR_MAX_MS = 30 * 1000;
 
 // Sem «Electron» no user agent: é o do Chrome da mesma versão.
@@ -59,15 +62,18 @@ const hostPermitido = (url, hosts) => {
   } catch (e) { return false; }
 };
 
-/** { driver, fechar() } para a conta; nada de preload, só https e janelas novas só para os hostsExtra do caixa (e subdomínios). */
-function criarJanela(accountId, deps, { hostsExtra = [] } = {}) {
+/** { driver, fechar() } no browser do casino; nada de preload, só https e janelas novas só para os hostsExtra do caixa (e subdomínios). */
+function criarJanela(casino, deps, { hostsExtra = [] } = {}) {
+  if (!/^[a-z0-9]{1,30}$/.test(String(casino))) throw new Error('casino inválido');
   const { BrowserWindow } = deps;
   const esperar = deps.esperar || ((ms) => new Promise(r => setTimeout(r, ms)));
   const webPreferences = () => ({
-    partition: `persist:${PREFIXO_PARTICAO}${accountId}`,
+    partition: particaoDe(casino),
     nodeIntegration: false,
     contextIsolation: true,
-    sandbox: true
+    sandbox: true,
+    // Escondida, o Chromium atrasava os temporizadores e a verificação anti-robô não acabava.
+    backgroundThrottling: false
   });
   // Tamanho de computador: a 800 px a Placard passa ao cabeçalho de telemóvel e esconde o «Depositar» que confirma o login.
   const win = new BrowserWindow({ show: false, width: 1366, height: 900, webPreferences: webPreferences() });
@@ -153,7 +159,7 @@ function criarJanela(accountId, deps, { hostsExtra = [] } = {}) {
   };
 }
 
-/** Apaga o browser de cada conta (partições op-*); devolve quantas. */
+/** Apaga os browsers das operações (partições op-*); devolve quantas. */
 async function limparParticoes(deps) {
   const listar = deps.listarParticoes || (async () => {
     try { return await fs.promises.readdir(path.join(deps.userData, 'Partitions')); } catch (e) { return []; }
