@@ -115,10 +115,18 @@ async function abrirBrowserReal(casino, deps, { hostsExtra = [] } = {}) {
   const perfil = path.join(pastaPerfis, `${PREFIXO_PERFIL}${casino}`);
   prepararPerfil(perfil, deps);
 
-  const browser = await comLimite(puppeteer.launch({
+  const lancar = puppeteer.launch({
     executablePath: escolhido.exe, headless: false, pipe: true, defaultViewport: null,
-    ignoreDefaultArgs: true, args: argsDe(perfil)
-  }), ABRIR_MAX_MS, 'o browser não abriu');
+    ignoreDefaultArgs: true, args: argsDe(perfil), timeout: ABRIR_MAX_MS
+  });
+  let browser;
+  try {
+    browser = await comLimite(lancar, ABRIR_MAX_MS + 5000, 'o browser não abriu');
+  } catch (e) {
+    // Um arranque que chega depois do limite fecha-se, senão ficava um Chrome sem dono a prender o perfil.
+    lancar.then(b => b.close()).catch(() => {});
+    throw e;
+  }
 
   let fechado = false;
   const fechar = async () => {
@@ -139,19 +147,25 @@ async function abrirBrowserReal(casino, deps, { hostsExtra = [] } = {}) {
 
     // A referência Multibanco do caixa abre numa janela nova; guardam-se as permitidas para o driver as ler.
     const filhas = [];
-    browser.on('targetcreated', async (alvo) => {
+    const tratarNova = async (alvo) => {
       if (alvo.type() !== 'page') return;
       const nova = await alvo.page().catch(() => null);
       if (!nova || nova === principal) return;
-      // Uma janela abre em branco e só depois navega: espera pelo endereço, até 3 s.
-      for (let i = 0; !hostPermitido(nova.url(), hostsExtra); i++) {
-        if (i >= 10 || nova.url() !== 'about:blank') { nova.close().catch(() => {}); return; }
-        await esperar(300);
+      try {
+        // Uma janela abre em branco e só depois navega: espera pelo endereço, até 3 s.
+        // alvo.url() e não nova.url(): esta lança «main frame too early» numa janela acabada de abrir.
+        for (let i = 0; !hostPermitido(alvo.url(), hostsExtra); i++) {
+          if (i >= 10 || !['', 'about:blank'].includes(alvo.url())) { nova.close().catch(() => {}); return; }
+          await esperar(300);
+        }
+        await soHttps(nova).catch(() => {});
+        filhas.push(nova);
+        nova.once('close', () => { const i = filhas.indexOf(nova); if (i >= 0) filhas.splice(i, 1); });
+      } catch (e) {
+        nova.close().catch(() => {});
       }
-      await soHttps(nova).catch(() => {});
-      filhas.push(nova);
-      nova.once('close', () => { const i = filhas.indexOf(nova); if (i >= 0) filhas.splice(i, 1); });
-    });
+    };
+    browser.on('targetcreated', (alvo) => { tratarNova(alvo).catch(() => {}); });
 
     const driver = {
       async navegar(url) {

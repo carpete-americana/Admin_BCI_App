@@ -89,9 +89,12 @@ function puppeteerFalso({ gotoErro } = {}) {
     close: async () => { estado.fechou++; },
     process: () => null
   };
+  // Como no Chrome real, o endereço lê-se no alvo; page.url() de uma janela acabada de abrir lança.
   const abrirFilha = async (url) => {
     const nova = pagina(url);
-    await ouvintes.targetcreated({ type: () => 'page', page: async () => nova });
+    nova.url = () => { throw new Error('Requesting main frame too early!'); };
+    ouvintes.targetcreated({ type: () => 'page', url: () => nova._url, page: async () => nova });
+    for (let i = 0; i < 20; i++) await new Promise(r => setImmediate(r));
     return nova;
   };
   return { estado, principal, abrirFilha, puppeteer: { launch: async (o) => { estado.lancado = o; return browser; } } };
