@@ -102,6 +102,7 @@ if (DEBUG) {
 }
 
 ipcMain.handle('navigate', window.handleNavigate);
+require('./barraJanela').ligarBotoesDaJanela();
 ipcMain.handle('logout', (e) => {
   dispositivo.aoTerminarSessao();
   return window.handleLogout(e);

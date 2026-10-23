@@ -1,148 +1,110 @@
 <!DOCTYPE html>
-<html lang="pt">
+<html lang="pt" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Offline | BCI Admin</title>
-  <link rel="stylesheet" href="./vendor/fontawesome-6.5.1/css/all.min.css">
+  <title>Sem internet | BCI Admin</title>
+  <link rel="stylesheet" href="./vendor/inter-5.3.0/inter.css">
   <style>
+    :root {
+      color-scheme: light;
+      --fundo: #f6f7fb; --brilho: rgba(99, 102, 241, 0.10);
+      --texto: #0f172a; --suave: #64748b; --fraco: #94a3b8; --linha: #e2e8f0;
+      --anel: rgba(99, 102, 241, 0.16); --circulo: #eef2ff; --icone: #6366f1;
+      --botao2: #ffffff; --botao2-texto: #334155; --chip: #ffffff;
+    }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --fundo: #0f0f14; --brilho: rgba(99, 102, 241, 0.12);
+      --texto: #f4f4f7; --suave: #9898a6; --fraco: #6b6b7a; --linha: #26263a;
+      --anel: rgba(129, 140, 248, 0.20); --circulo: rgba(99, 102, 241, 0.16); --icone: #a5b4fc;
+      --botao2: rgba(255, 255, 255, 0.06); --botao2-texto: #d4d4dc; --chip: rgba(255, 255, 255, 0.04);
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-
+    html, body { height: 100%; }
     body {
-      font-family: 'Inter', 'Segoe UI', -apple-system, sans-serif;
-      background: #0f0f14;
-      color: #f1f1f4;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      overflow: hidden;
+      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      background: var(--fundo); color: var(--texto);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 32px 20px; overflow: hidden; user-select: none;
     }
-
     body::before {
-      content: '';
-      position: fixed;
-      inset: 0;
-      background: radial-gradient(ellipse at 30% 20%, rgba(99, 102, 241, 0.08) 0%, transparent 60%),
-                  radial-gradient(ellipse at 70% 80%, rgba(99, 102, 241, 0.05) 0%, transparent 60%);
-      z-index: 0;
+      content: ''; position: fixed; inset: 0; pointer-events: none;
+      background: radial-gradient(600px 400px at 50% 38%, var(--brilho), transparent 70%);
     }
-
-    .container {
-      position: relative;
-      z-index: 1;
-      text-align: center;
-      padding: 40px;
-      max-width: 400px;
-      width: 100%;
+    main { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; max-width: 420px; animation: entra 0.4s ease-out; }
+    .figura { position: relative; width: 148px; height: 148px; display: grid; place-items: center; margin-bottom: 32px; }
+    .onda { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--anel); animation: onda 2.6s ease-out infinite; }
+    .onda + .onda { animation-delay: 1.3s; }
+    .circulo { position: relative; width: 92px; height: 92px; border-radius: 50%; display: grid; place-items: center; background: var(--circulo); color: var(--icone); }
+    .circulo svg { width: 40px; height: 40px; }
+    h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 10px; }
+    p { font-size: 15px; line-height: 1.6; color: var(--suave); margin-bottom: 28px; }
+    .acoes { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+    .botao {
+      appearance: none; border: 1px solid transparent; border-radius: 12px; padding: 0 22px; height: 46px;
+      font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 8px;
+      transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
     }
-
-    .icon-wrapper {
-      width: 72px;
-      height: 72px;
-      border-radius: 16px;
-      background: rgba(239, 68, 68, 0.1);
-      border: 1px solid rgba(239, 68, 68, 0.2);
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 24px;
+    .botao:active { transform: scale(0.97); }
+    .botao svg { width: 17px; height: 17px; }
+    .primario { background: #6366f1; color: #fff; box-shadow: 0 8px 22px rgba(99, 102, 241, 0.32); }
+    .primario:hover { background: #4f46e5; }
+    .secundario { background: var(--botao2); color: var(--botao2-texto); border-color: var(--linha); }
+    .secundario:hover { border-color: var(--fraco); }
+    .estado {
+      margin-top: 22px; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--linha); background: var(--chip);
+      font-size: 13px; color: var(--suave); display: inline-flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums;
     }
-
-    .icon-wrapper i {
-      font-size: 28px;
-      color: #ef4444;
-    }
-
-    h1 {
-      font-size: 22px;
-      font-weight: 700;
-      margin-bottom: 10px;
-    }
-
-    p {
-      font-size: 14px;
-      color: #9898a6;
-      line-height: 1.6;
-      margin-bottom: 28px;
-    }
-
-    .actions {
-      display: flex;
-      gap: 10px;
-      justify-content: center;
-    }
-
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 20px;
-      border: none;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      font-family: inherit;
-    }
-
-    .btn-primary {
-      background: #6366f1;
-      color: #fff;
-    }
-
-    .btn-primary:hover {
-      background: #4f46e5;
-    }
-
-    .btn-secondary {
-      background: #252532;
-      color: #9898a6;
-      border: 1px solid #2d2d3d;
-    }
-
-    .btn-secondary:hover {
-      background: #2d2d3d;
-      color: #f1f1f4;
-    }
-
-    .tip {
-      margin-top: 24px;
-      font-size: 12px;
-      color: #6b6b7a;
-    }
-
-    .tip i { margin-right: 4px; }
+    .estado::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; animation: piscar 1.6s ease-in-out infinite; }
+    .dicas { margin-top: 40px; display: flex; gap: 8px 22px; flex-wrap: wrap; justify-content: center; font-size: 13px; color: var(--fraco); }
+    .dicas span::before { content: '•'; margin-right: 8px; color: var(--icone); }
+    .marca { position: fixed; bottom: 20px; font-size: 13px; font-weight: 700; letter-spacing: 0.02em; color: var(--fraco); }
+    .arrastar { position: fixed; top: 0; left: 0; right: 0; height: 71px; -webkit-app-region: drag; }
+    button { -webkit-app-region: no-drag; }
+    .abanar .figura { animation: abanar 0.4s ease; }
+    @keyframes entra { from { transform: translateY(10px); } }
+    @keyframes onda { from { transform: scale(0.62); opacity: 1; } to { transform: scale(1.15); opacity: 0; } }
+    @keyframes piscar { 50% { opacity: 0.35; } }
+    @keyframes abanar { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+    @media (prefers-reduced-motion: reduce) { main, .onda, .estado::before { animation: none; } }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="icon-wrapper">
-      <i class="fas fa-wifi-slash"></i>
+  <div class="arrastar" aria-hidden="true"></div>
+  <main id="ecra">
+    <div class="figura" aria-hidden="true">
+      <span class="onda"></span><span class="onda"></span>
+      <span class="circulo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01"/><path d="M8.5 16.43a5 5 0 0 1 7 0"/><path d="M2 8.82a15 15 0 0 1 4.17-2.65"/><path d="M10.66 5c4.01-.36 8.14.9 11.34 3.76"/><path d="M16.85 11.25a10 10 0 0 1 2.22 1.68"/><path d="M5 13a10 10 0 0 1 5.24-2.76"/><path d="m2 2 20 20"/></svg>
+      </span>
     </div>
-    <h1>Sem ligação à internet</h1>
-    <p>Liga-te à internet para continuares a usar o BCI Admin. O conteúdo será carregado automaticamente quando a ligação for restabelecida.</p>
-    <div class="actions">
-      <button id="retryBtn" class="btn btn-primary">
-        <i class="fas fa-redo-alt"></i> Tentar novamente
+    <h1>Estás sem internet</h1>
+    <p>Assim que a ligação voltar, o painel abre sozinho.</p>
+    <div class="acoes">
+      <button id="retryOfflineBtn" class="botao primario">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+        Tentar agora
       </button>
-      <button id="quitBtn" class="btn btn-secondary">
-        <i class="fas fa-times"></i> Fechar
-      </button>
+      <button id="quitOfflineBtn" class="botao secundario">Fechar</button>
     </div>
-    <div class="tip">
-      <i class="fas fa-lightbulb"></i> Verifica o Wi-Fi ou a ligação de rede.
-    </div>
-  </div>
+    <span id="estado" class="estado" role="status">À espera de ligação</span>
+    <div class="dicas"><span>Confirma o Wi-Fi ou o cabo</span><span>Com VPN, experimenta desligá-la</span></div>
+  </main>
+  <div class="marca">BCI Admin</div>
 
+  <script src="./shell-janela.js"></script>
   <script>
-    (function() {
-      const retry = document.getElementById('retryBtn');
-      const quit = document.getElementById('quitBtn');
+    (function(){
+      const ecra = document.getElementById('ecra');
+      const estado = document.getElementById('estado');
+      const INTERVALO = 5;
+      let falta = INTERVALO;
+      let avisoAte = 0;
 
-      if (retry) retry.addEventListener('click', () => {
-        if (!navigator.onLine) return;
+      function abrir() {
+        // Pelo IPC, para evitar um flash sem estilos.
         try {
           if (window.electronAPI && typeof window.electronAPI.navigate === 'function') {
             window.electronAPI.navigate('index.html');
@@ -152,23 +114,29 @@
         } catch (e) {
           window.location.replace('index.html');
         }
-      });
+      }
 
-      if (quit) quit.addEventListener('click', () => {
-        window.close();
-      });
-
-      window.addEventListener('online', () => {
-        try {
-          if (window.electronAPI && typeof window.electronAPI.navigate === 'function') {
-            window.electronAPI.navigate('index.html');
-          } else {
-            window.location.replace('index.html');
-          }
-        } catch (e) {
-          window.location.replace('index.html');
+      function tentar(manual) {
+        if (navigator.onLine) return abrir();
+        falta = INTERVALO;
+        if (manual) {
+          estado.textContent = 'Ainda sem ligação';
+          avisoAte = Date.now() + 2000;
+          ecra.classList.remove('abanar');
+          void ecra.offsetWidth;
+          ecra.classList.add('abanar');
         }
-      });
+      }
+
+      setInterval(() => {
+        falta -= 1;
+        if (falta <= 0) tentar(false);
+        if (Date.now() >= avisoAte) estado.textContent = 'A tentar outra vez em ' + Math.max(falta, 1) + ' s';
+      }, 1000);
+
+      document.getElementById('retryOfflineBtn').addEventListener('click', () => tentar(true));
+      document.getElementById('quitOfflineBtn').addEventListener('click', () => window.close());
+      window.addEventListener('online', abrir);
     })();
   </script>
 </body>

@@ -3,6 +3,7 @@ const path = require('path');
 const ElectronStorage = require('../../js/storage');
 const { DEBUG } = require('./config');
 const { arrancarOculto } = require('./dispositivo');
+const { opcoesBarra, seguirMaximizada } = require('./barraJanela');
 
 function loadWindowState() {
   const state = ElectronStorage.getItem('admin-window-state');
@@ -72,6 +73,7 @@ function createWindow() {
     minHeight: 800,
     show: false,
     fullscreenable: true,
+    ...opcoesBarra(),
     icon: icon,
     title: 'BCI Admin',
     webPreferences: {
@@ -85,6 +87,7 @@ function createWindow() {
 
   protegerNavegacao(win);
 
+  seguirMaximizada(win);
   win.setMenu(null);
   win.loadFile(path.join(__dirname, '../../public/index.html'));
   

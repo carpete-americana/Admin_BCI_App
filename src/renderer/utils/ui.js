@@ -1,3 +1,4 @@
+import { mostrarSemInternet } from './network.js';
 export function showLoading() {
   if (document.getElementById('loading-overlay')) return;
   const overlay = document.createElement('div');
@@ -12,6 +13,9 @@ export function hideLoading() {
 }
 
 export function showErrorPage(error, route) {
+  if (!navigator.onLine) {
+    return mostrarSemInternet(document.getElementById('main-content'), () => window.location.reload(), { escuro: true });
+  }
   const mainContent = document.getElementById('main-content');
   if (!mainContent) return;
   mainContent.innerHTML = `
