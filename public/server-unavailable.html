@@ -1,234 +1,154 @@
 <!DOCTYPE html>
-<html lang="pt">
+<html lang="pt" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Servidor Indisponível | BCI Admin</title>
-  <link rel="stylesheet" href="./vendor/fontawesome-6.5.1/css/all.min.css">
+  <title>Servidor indisponível | BCI Admin</title>
+  <link rel="stylesheet" href="./vendor/inter-5.3.0/inter.css">
   <style>
+    :root {
+      color-scheme: light;
+      --fundo: #f6f7fb; --brilho: rgba(99, 102, 241, 0.10);
+      --texto: #0f172a; --suave: #64748b; --fraco: #94a3b8; --linha: #e2e8f0;
+      --anel: rgba(245, 158, 11, 0.20); --circulo: #fff7ed; --icone: #ea580c;
+      --botao2: #ffffff; --botao2-texto: #334155; --chip: #ffffff;
+    }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --fundo: #0f0f14; --brilho: rgba(99, 102, 241, 0.12);
+      --texto: #f4f4f7; --suave: #9898a6; --fraco: #6b6b7a; --linha: #26263a;
+      --anel: rgba(245, 158, 11, 0.22); --circulo: rgba(245, 158, 11, 0.14); --icone: #fbbf24;
+      --botao2: rgba(255, 255, 255, 0.06); --botao2-texto: #d4d4dc; --chip: rgba(255, 255, 255, 0.04);
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-
+    html, body { height: 100%; }
     body {
-      font-family: 'Inter', 'Segoe UI', -apple-system, sans-serif;
-      background: #0f0f14;
-      color: #f1f1f4;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      overflow: hidden;
+      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      background: var(--fundo); color: var(--texto);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 32px 20px; overflow: hidden; user-select: none;
     }
-
     body::before {
-      content: '';
-      position: fixed;
-      inset: 0;
-      background: radial-gradient(ellipse at 30% 20%, rgba(99, 102, 241, 0.08) 0%, transparent 60%),
-                  radial-gradient(ellipse at 70% 80%, rgba(99, 102, 241, 0.05) 0%, transparent 60%);
-      z-index: 0;
+      content: ''; position: fixed; inset: 0; pointer-events: none;
+      background: radial-gradient(600px 400px at 50% 38%, var(--brilho), transparent 70%);
     }
-
-    .container {
-      position: relative;
-      z-index: 1;
-      text-align: center;
-      padding: 40px;
-      max-width: 420px;
-      width: 100%;
+    main { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; max-width: 420px; animation: entra 0.4s ease-out; }
+    .figura { position: relative; width: 148px; height: 148px; display: grid; place-items: center; margin-bottom: 32px; }
+    .onda { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--anel); animation: onda 2.6s ease-out infinite; }
+    .onda + .onda { animation-delay: 1.3s; }
+    .circulo { position: relative; width: 92px; height: 92px; border-radius: 50%; display: grid; place-items: center; background: var(--circulo); color: var(--icone); }
+    .circulo svg { width: 40px; height: 40px; }
+    h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 10px; }
+    p { font-size: 15px; line-height: 1.6; color: var(--suave); margin-bottom: 28px; }
+    .acoes { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+    .botao {
+      appearance: none; border: 1px solid transparent; border-radius: 12px; padding: 0 22px; height: 46px;
+      font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 8px;
+      transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
     }
-
-    .icon-wrapper {
-      width: 72px;
-      height: 72px;
-      border-radius: 16px;
-      background: rgba(245, 158, 11, 0.1);
-      border: 1px solid rgba(245, 158, 11, 0.2);
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 24px;
+    .botao:active { transform: scale(0.97); }
+    .botao svg { width: 17px; height: 17px; }
+    .primario { background: #6366f1; color: #fff; box-shadow: 0 8px 22px rgba(99, 102, 241, 0.32); }
+    .primario:hover { background: #4f46e5; }
+    .secundario { background: var(--botao2); color: var(--botao2-texto); border-color: var(--linha); }
+    .secundario:hover { border-color: var(--fraco); }
+    .estado {
+      margin-top: 22px; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--linha); background: var(--chip);
+      font-size: 13px; color: var(--suave); display: inline-flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums;
     }
-
-    .icon-wrapper i {
-      font-size: 28px;
-      color: #f59e0b;
-    }
-
-    h1 {
-      font-size: 22px;
-      font-weight: 700;
-      margin-bottom: 8px;
-    }
-
-    .subtitle {
-      font-size: 13px;
-      color: #f59e0b;
-      font-weight: 600;
-      margin-bottom: 16px;
-    }
-
-    p {
-      font-size: 14px;
-      color: #9898a6;
-      line-height: 1.6;
-      margin-bottom: 20px;
-    }
-
-    .status-box {
-      background: #1a1a24;
-      border: 1px solid #2d2d3d;
-      border-left: 3px solid #f59e0b;
-      border-radius: 8px;
-      padding: 14px 16px;
-      margin-bottom: 24px;
-      text-align: left;
-    }
-
-    .status-box strong {
-      display: block;
-      font-size: 12px;
-      color: #f59e0b;
-      margin-bottom: 6px;
-    }
-
-    .status-box p {
-      margin: 0;
-      font-size: 13px;
-      color: #9898a6;
-    }
-
-    .actions {
-      display: flex;
-      gap: 10px;
-      justify-content: center;
-      margin-bottom: 16px;
-    }
-
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 20px;
-      border: none;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      font-family: inherit;
-    }
-
-    .btn-primary {
-      background: #6366f1;
-      color: #fff;
-    }
-
-    .btn-primary:hover {
-      background: #4f46e5;
-    }
-
-    .btn-secondary {
-      background: #252532;
-      color: #9898a6;
-      border: 1px solid #2d2d3d;
-    }
-
-    .btn-secondary:hover {
-      background: #2d2d3d;
-      color: #f1f1f4;
-    }
-
-    .checking-status {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      font-size: 12px;
-      color: #6b6b7a;
-      margin-bottom: 16px;
-    }
-
-    .spinner {
-      width: 14px;
-      height: 14px;
-      border: 2px solid #2d2d3d;
-      border-top-color: #6366f1;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    .tip {
-      font-size: 12px;
-      color: #6b6b7a;
-    }
-
-    .tip i { margin-right: 4px; }
+    .estado::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; animation: piscar 1.6s ease-in-out infinite; }
+    .dicas { margin-top: 40px; display: flex; gap: 8px 22px; flex-wrap: wrap; justify-content: center; font-size: 13px; color: var(--fraco); }
+    .dicas span::before { content: '•'; margin-right: 8px; color: var(--icone); }
+    .marca { position: fixed; bottom: 20px; font-size: 13px; font-weight: 700; letter-spacing: 0.02em; color: var(--fraco); }
+    .arrastar { position: fixed; top: 0; left: 0; right: 0; height: 71px; -webkit-app-region: drag; }
+    button { -webkit-app-region: no-drag; }
+    .abanar .figura { animation: abanar 0.4s ease; }
+    @keyframes entra { from { transform: translateY(10px); } }
+    @keyframes onda { from { transform: scale(0.62); opacity: 1; } to { transform: scale(1.15); opacity: 0; } }
+    @keyframes piscar { 50% { opacity: 0.35; } }
+    @keyframes abanar { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+    @media (prefers-reduced-motion: reduce) { main, .onda, .estado::before { animation: none; } }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="icon-wrapper">
-      <i class="fas fa-server"></i>
+  <div class="arrastar" aria-hidden="true"></div>
+  <main id="ecra">
+    <div class="figura" aria-hidden="true">
+      <span class="onda"></span><span class="onda"></span>
+      <span class="circulo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01"/><path d="M7 17.5h.01"/><path d="M12 6.5h5"/><path d="M12 17.5h5"/></svg>
+      </span>
     </div>
-    <h1>Servidor Indisponível</h1>
-    <div class="subtitle">O servidor está temporariamente offline</div>
-    <p>O servidor de backend está indisponível. A aplicação continuará a tentar conectar-se automaticamente.</p>
-
-    <div class="status-box">
-      <strong><i class="fas fa-info-circle"></i> O que está a acontecer?</strong>
-      <p>O servidor deixou de responder. O BCI Admin vai tentar reconectar automaticamente.</p>
-    </div>
-
-    <div class="actions">
-      <button id="retryBtn" class="btn btn-primary">
-        <i class="fas fa-redo-alt"></i> Tentar novamente
+    <h1>O BCI não está a responder</h1>
+    <p>Não é da tua ligação: o servidor está em baixo ou em manutenção. Assim que voltar, o painel abre sozinho.</p>
+    <div class="acoes">
+      <button id="retryBtn" class="botao primario">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+        Tentar agora
       </button>
-      <button id="closeBtn" class="btn btn-secondary">
-        <i class="fas fa-times"></i> Fechar
-      </button>
+      <button id="closeBtn" class="botao secundario">Fechar</button>
     </div>
+    <span id="estado" class="estado" role="status">A verificar o servidor</span>
+    <div class="dicas"><span>Já demora? Fecha e volta a abrir a app</span></div>
+  </main>
+  <div class="marca">BCI Admin</div>
 
-    <div class="checking-status">
-      <div class="spinner"></div>
-      <span>A verificar conexão...</span>
-    </div>
-
-    <div class="tip">
-      <i class="fas fa-lightbulb"></i> À espera há muito tempo? Reinicia a aplicação ou verifica a ligação de rede.
-    </div>
-  </div>
-
+  <script src="./shell-janela.js"></script>
   <script>
-    (function() {
-      const retryBtn = document.getElementById('retryBtn');
-      const closeBtn = document.getElementById('closeBtn');
-      let autoRetryInterval = null;
+    (function(){
+      const ecra = document.getElementById('ecra');
+      const estado = document.getElementById('estado');
+      const INTERVALO = 5;
+      let falta = INTERVALO;
+      let avisoAte = 0;
 
-      if (retryBtn) retryBtn.addEventListener('click', performRetry);
-      if (closeBtn) closeBtn.addEventListener('click', () => window.close());
-
-      async function performRetry() {
+      function abrir() {
+        // Pelo IPC, para evitar um flash sem estilos.
         try {
-          if (window.electronAPI && typeof window.electronAPI.checkServerStatus === 'function') {
-            const serverAvailable = await window.electronAPI.checkServerStatus();
-            if (serverAvailable) {
-              if (window.electronAPI && typeof window.electronAPI.navigate === 'function') {
-                window.electronAPI.navigate('index.html');
-              }
-              clearInterval(autoRetryInterval);
-              return;
-            }
+          if (window.electronAPI && typeof window.electronAPI.navigate === 'function') {
+            window.electronAPI.navigate('index.html');
+          } else {
+            window.location.replace('index.html');
           }
         } catch (e) {
-          console.error('[SERVER-UNAVAILABLE] Retry error:', e);
+          window.location.replace('index.html');
         }
       }
 
-      autoRetryInterval = setInterval(performRetry, 5000);
-      setTimeout(performRetry, 2000);
-      window.addEventListener('beforeunload', () => clearInterval(autoRetryInterval));
+      let aVerificar = false;
+
+      async function tentar(manual) {
+        if (aVerificar) return;
+        aVerificar = true;
+        let ok = false;
+        try {
+          ok = window.electronAPI && typeof window.electronAPI.checkServerStatus === 'function'
+            ? await window.electronAPI.checkServerStatus() : false;
+        } catch (e) {
+          console.error('[SERVER-UNAVAILABLE] Erro ao verificar servidor:', e);
+        }
+        aVerificar = false;
+        if (ok) return abrir();
+        falta = INTERVALO;
+        if (manual) {
+          estado.textContent = 'O servidor ainda não responde';
+          avisoAte = Date.now() + 2000;
+          ecra.classList.remove('abanar');
+          void ecra.offsetWidth;
+          ecra.classList.add('abanar');
+        }
+      }
+
+      setInterval(() => {
+        falta -= 1;
+        if (falta <= 0) tentar(false);
+        if (Date.now() >= avisoAte) estado.textContent = 'A tentar outra vez em ' + Math.max(falta, 1) + ' s';
+      }, 1000);
+
+      document.getElementById('retryBtn').addEventListener('click', () => tentar(true));
+      document.getElementById('closeBtn').addEventListener('click', () => window.close());
+      setTimeout(() => tentar(false), 2000);
     })();
   </script>
 </body>
