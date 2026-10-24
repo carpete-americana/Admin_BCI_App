@@ -202,12 +202,12 @@ async function instalarAtualizacao(aoErro) {
 
       // Script VBS para correr o instalador sem janela de consola.
       const vbsPath = path.join(bciPath, 'run-installer.vbs');
-      const installDir = path.join(appDataPath, '..', 'Local', 'Programs', 'BCI Admin');
-      const appExePath = path.join(installDir, 'BCI Admin.exe');
-      const vbsContent = `Set objShell = CreateObject("WScript.Shell")
-objShell.Run "${finalInstallerPath}" & " /S /D=" & "${installDir}", 0, True
-WScript.Sleep 2000
-objShell.Run "${appExePath}", 0, False`;
+      // Instala por cima da cópia que está a correr, mesmo que tenha sido instalada noutra pasta.
+      const appExePath = app.isPackaged
+        ? process.execPath
+        : path.join(appDataPath, '..', 'Local', 'Programs', 'BCI Admin', 'BCI Admin.exe');
+      const installDir = path.dirname(appExePath);
+      const vbsContent = scriptInstalador({ instalador: finalInstallerPath, pasta: installDir, exe: appExePath });
 
       fs.writeFileSync(vbsPath, vbsContent);
       log.info('[UPDATER] Instalador silencioso em:', installDir);
@@ -230,6 +230,17 @@ objShell.Run "${appExePath}", 0, False`;
       aoErro({ message: 'Erro ao instalar atualização: ' + e.message });
     }
   }
+}
+
+/** Script VBS que corre o instalador em silêncio e reabre a app. */
+function scriptInstalador({ instalador, pasta, exe }) {
+  // Sem aspas, o Run corta no espaço: «Programs\BCI Admin\BCI Admin.exe» abria a pasta «Programs\BCI» (a da User App).
+  const aspas = (texto) => `"""${texto}"""`;
+  // O /D= do NSIS tem de ser o último argumento e vai sem aspas, mesmo com espaços.
+  return `Set objShell = CreateObject("WScript.Shell")
+objShell.Run ${aspas(instalador)} & " /S /D=${pasta}", 0, True
+WScript.Sleep 2000
+objShell.Run ${aspas(exe)}, 1, False`;
 }
 
 /** Pura, para testar: instala-se sozinha com o instalador pronto, sem trabalho e sem ninguém a usar a app. */
@@ -288,6 +299,7 @@ function checkForUpdates() {
 
 module.exports = {
   podeInstalarAgora,
+  scriptInstalador,
   setupUpdateHandlers,
   checkForUpdates,
   simulateUpdateAvailable

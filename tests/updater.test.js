@@ -48,3 +48,14 @@ test('instala-se sozinha só com a app parada', () => {
   assert.strictEqual(podeInstalarAgora({ ...base, janelasVisiveis: 1, inativoSeg: 30 }), false, 'a pessoa está a usá-la');
   assert.strictEqual(podeInstalarAgora({ ...base, janelasVisiveis: 1, inativoSeg: 600 }), true, 'janela aberta mas PC parado há 10 min');
 });
+
+test('o script de instalação põe aspas nos caminhos com espaços', () => {
+  const { scriptInstalador } = carregarUpdater();
+  const vbs = scriptInstalador({
+    instalador: String.raw`C:\Users\Ana Silva\Roaming\BCI Admin-Setup.exe`,
+    pasta: String.raw`C:\Programs\BCI Admin`,
+    exe: String.raw`C:\Programs\BCI Admin\BCI Admin.exe`
+  });
+  assert.ok(vbs.includes(String.raw`objShell.Run """C:\Users\Ana Silva\Roaming\BCI Admin-Setup.exe""" & " /S /D=C:\Programs\BCI Admin", 0, True`));
+  assert.ok(vbs.includes(String.raw`objShell.Run """C:\Programs\BCI Admin\BCI Admin.exe""", 1, False`));
+});
