@@ -59,7 +59,7 @@ function posicaoFora(ecras) {
   return { x: Math.round(menor('x')) - 2400, y: Math.round(menor('y')) - 2400 };
 }
 
-// O perfil não guarda passwords nem preenchimentos, recusa permissões e fala português.
+// O perfil não guarda passwords nem preenchimentos, recusa permissões, fala português e não oferece traduções.
 const PREFERENCIAS = {
   intl: { accept_languages: 'pt-PT,pt' },
   credentials_enable_service: false,
@@ -68,6 +68,7 @@ const PREFERENCIAS = {
     default_content_setting_values: { notifications: 2, geolocation: 2, media_stream_mic: 2, media_stream_camera: 2, clipboard: 2, automatic_downloads: 2 }
   },
   autofill: { profile_enabled: false, credit_card_enabled: false },
+  translate: { enabled: false },
   download: { prompt_for_download: false }
 };
 
@@ -107,6 +108,23 @@ const comLimite = (promessa, ms, motivo) => {
   let t;
   return Promise.race([promessa, new Promise((_, rejeitar) => { t = setTimeout(() => rejeitar(new Error(motivo)), ms); })]).finally(() => clearTimeout(t));
 };
+
+/**
+ * O puppeteer lança o Chrome com windowsHide e o Windows esconde a primeira janela do processo; uma segunda já aparece.
+ * Sem isto via-se só a bolha da tradução, cinzenta, que fechava sozinha.
+ */
+async function janelaVisivel(browser, cdp, inicial) {
+  try {
+    const nova = browser.waitForTarget((t) => t.type() === 'page' && t !== inicial.target(), { timeout: ABRIR_MAX_MS });
+    await cdp.send('Target.createTarget', { url: 'about:blank', newWindow: true });
+    const page = await (await nova).page();
+    await inicial.close().catch(() => {});
+    await mostrarJanela(page);
+    return page;
+  } catch (e) {
+    return inicial;
+  }
+}
 
 /** Põe a janela à frente e fora de maximizada/minimizada; o Windows deixava-a atrás da app. */
 async function mostrarJanela(page) {
@@ -164,11 +182,11 @@ async function abrirBrowserReal(casino, deps, { hostsExtra = [] } = {}) {
   try {
     const cdp = await browser.target().createCDPSession();
     await cdp.send('Browser.setDownloadBehavior', { behavior: 'deny' });
-    const [principal = await browser.newPage(), ...restantes] = await browser.pages();
+    const [inicial = await browser.newPage(), ...restantes] = await browser.pages();
     // Um perfil que restaura separadores da sessão anterior.
     for (const p of restantes) await p.close().catch(() => {});
+    const principal = visivel ? await janelaVisivel(browser, cdp, inicial) : inicial;
     await soHttps(principal);
-    if (visivel) await mostrarJanela(principal);
 
     // A referência Multibanco do caixa abre numa janela nova; guardam-se as permitidas para o driver as ler.
     const filhas = [];

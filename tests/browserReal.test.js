@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { encontrarBrowser, abrirBrowserReal, prepararPerfil, limparPerfis, argsDe, posicaoFora, ARGS, hostPermitido } = require('../src/main/browserReal');
+const { encontrarBrowser, abrirBrowserReal, prepararPerfil, limparPerfis, argsDe, posicaoFora, ARGS, hostPermitido, PREFERENCIAS } = require('../src/main/browserReal');
 
 const ENV = { ProgramFiles: 'C:\\Program Files', 'ProgramFiles(x86)': 'C:\\Program Files (x86)', LOCALAPPDATA: 'C:\\Users\\x\\AppData\\Local' };
 const so = (...exes) => (e) => exes.includes(e);
@@ -48,9 +48,20 @@ test('com a preferência de mostrar a janela, o browser abre dentro do ecrã', a
     const f = puppeteerFalso();
     const pastaPerfis = fs.mkdtempSync(path.join(os.tmpdir(), 'bci-perfis-'));
     const r = await abrirBrowserReal('placard', { puppeteer: f.puppeteer, browser: { exe: 'x' }, pastaPerfis, visivel, esperar: async () => {} });
-    try { assert.ok(f.estado.lancado.args.includes(esperado)); }
-    finally { await r.fechar(); fs.rmSync(pastaPerfis, { recursive: true, force: true }); }
+    try {
+      assert.ok(f.estado.lancado.args.includes(esperado));
+      // Visível: trabalha numa janela nova (a primeira o Windows esconde) e fecha a inicial.
+      const nova = esperado === '--window-position=40,40';
+      assert.equal(f.estado.cdp.some(([m, a]) => m === 'Target.createTarget' && a.newWindow === true), nova);
+      assert.equal(f.estado.paginas[0].fechada, nova);
+      await r.driver.navegar('https://www.placard.pt/');
+      assert.equal(f.estado.paginas[nova ? 1 : 0]._url, 'https://www.placard.pt/');
+    } finally { await r.fechar(); fs.rmSync(pastaPerfis, { recursive: true, force: true }); }
   }
+});
+
+test('prepararPerfil desliga as traduções: a bolha aparecia no ecrã mesmo com o browser escondido', () => {
+  assert.equal(PREFERENCIAS.translate.enabled, false);
 });
 
 test('hostPermitido: o host ou um subdomínio, só https', () => {
@@ -89,6 +100,7 @@ function puppeteerFalso({ gotoErro } = {}) {
       isClosed() { return this.fechada; },
       close: async () => { p.fechada = true; p.ouvintes.close?.(); },
       once(ev, f) { this.ouvintes[ev] = f; },
+      target: () => p._alvo,
       goto: async (u) => { if (gotoErro) throw gotoErro; p._url = u; },
       createCDPSession: async () => ({ on() {}, send: async (m, a) => { estado.cdp.push([m, a]); } }),
       mainFrame: () => ({ evaluate: async () => 'principal' }),
@@ -99,11 +111,20 @@ function puppeteerFalso({ gotoErro } = {}) {
     return p;
   };
   const principal = pagina();
+  principal._alvo = { type: () => 'page', page: async () => principal };
   const ouvintes = {};
   const browser = {
     target: () => ({ createCDPSession: async () => ({ send: async (m, a) => { estado.cdp.push([m, a]); } }) }),
     pages: async () => [principal],
     newPage: async () => pagina(),
+    // Target.createTarget com newWindow: a janela nova chega como alvo novo.
+    waitForTarget: async (pred) => {
+      const nova = pagina();
+      const alvo = { type: () => 'page', page: async () => nova };
+      nova._alvo = alvo;
+      if (!pred(alvo)) throw new Error('alvo não esperado');
+      return alvo;
+    },
     on: (ev, f) => { ouvintes[ev] = f; },
     close: async () => { estado.fechou++; },
     process: () => null
