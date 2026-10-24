@@ -266,3 +266,77 @@ test('valorDoLevantamento: igual ao da extensão nos mesmos casos', { skip: !fs.
     assert.deepEqual(valorDoLevantamento(p, saldo), daExtensao(run, 1, saldo), JSON.stringify([p, saldo]));
   }
 });
+
+// ---------- Betclic ----------
+
+const { fixture } = require('./ajuda/paginaJsdom');
+
+const BC_LOGIN = 'https://www.betclic.pt/login';
+const BC_LEVANTAR = 'https://pay.betclic.pt/withdraw/';
+const BC_FORMULARIO = `<!doctype html><html><body><form>
+  <input name="username"><input name="password" type="password">
+  <button type="submit">Entrar</button></form></body></html>`;
+const BC_DENTRO = '<!doctype html><html><body><header><a class="header_walletBalance" href="/account/wallet">138,09 €</a></header></body></html>';
+
+// resposta: o que o site mostra depois de Levantar (null: nada).
+function cenarioBetclic({ resposta = 'Pedido confirmado', aoChamar, ...resto } = {}) {
+  let dentro = false;
+  const preparaCaixa = (w) => {
+    const d = w.document;
+    d.querySelector('input').addEventListener('input', (e) => { d.querySelector('button.btn.is-primary').disabled = !e.target.value; });
+    d.querySelector('button.btn.is-primary').addEventListener('click', () => {
+      if (resposta) d.body.innerHTML = `<p>${resposta}</p><button>Feito</button>`;
+    });
+  };
+  return criarDriver({
+    paginas: {
+      [BC_LOGIN]: () => ({ html: dentro ? BC_DENTRO : BC_FORMULARIO }),
+      [BC_LEVANTAR]: { fixture: 'betclic-levantar', caixa: fixture('betclic-levantar'), caixaUrl: BC_LEVANTAR, preparaCaixa }
+    },
+    aoChamar: (nome, d) => {
+      if (nome === 'clicarEntrar' && !dentro) { dentro = true; d.abrir(BC_LOGIN); }
+      aoChamar?.(nome, d);
+    },
+    ...resto
+  });
+}
+const pedidoBetclic = (extra = {}) => pedido({ casino: 'betclic', ...extra });
+const fechos = (d) => d.nomes().filter(n => n === 'fecharResultadoLevantamento').length;
+
+test('betclic: o ensaio pára antes de Levantar', async () => {
+  const d = cenarioBetclic();
+  const r = await levantarDaConta(d, pedidoBetclic({ ensaio: true }));
+  assert.deepEqual([r.estado, r.saldo, r.valor, r.iban], ['ensaio', 137.09, 20, '…3081']);
+  assert.ok(!d.nomes().includes('confirmarLevantamento'));
+  assert.equal(fechos(d), 0);
+});
+
+test('betclic: real fecha o aviso uma vez e a conta fica feita com o texto do site', async () => {
+  const d = cenarioBetclic();
+  const r = await levantarDaConta(d, pedidoBetclic());
+  assert.deepEqual([r.estado, r.valor, r.motivo], ['feita', 20, 'Pedido confirmado']);
+  assert.equal(d.nomes().filter(n => n === 'confirmarLevantamento').length, 1);
+  assert.equal(fechos(d), 1);
+});
+
+test('betclic: se fechar o aviso rebentar a conta continua feita', async () => {
+  const d = cenarioBetclic({ falhar: (n) => n === 'fecharResultadoLevantamento' });
+  const r = await levantarDaConta(d, pedidoBetclic());
+  assert.equal(r.estado, 'feita');
+  assert.equal(fechos(d), 1);
+});
+
+test('betclic: sem resposta clara depois de Levantar pede verificação e não fecha nada', async () => {
+  const d = cenarioBetclic({ resposta: null });
+  const r = await levantarDaConta(d, pedidoBetclic());
+  assert.equal(r.estado, 'verificar');
+  assert.equal(r.fase, 'resultado');
+  assert.equal(fechos(d), 0);
+});
+
+test('placard: nunca fecha o aviso do levantamento', async () => {
+  const d = cenario();
+  const r = await levantarDaConta(d, pedido());
+  assert.equal(r.estado, 'feita');
+  assert.equal(fechos(d), 0);
+});

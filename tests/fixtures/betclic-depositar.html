@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="pt"><head><meta charset="utf-8"><title>Depositar</title></head>
+<body>
+  <input data-qa="deposit-amount-input-field" inputmode="decimal" type="text" placeholder="0">
+  <ul>
+    <li><div data-qa="payment-mean-mbway-wrapper"><i class="icon_checkSmall"></i><span>MB WAY</span><span>+351 9** *** 000</span></div></li>
+    <li><div data-qa="payment-mean-multibanco-wrapper"><i class="icon_check"></i><span>Multibanco</span></div></li>
+    <li><div data-qa="payment-mean-card-wrapper"><i class="icon_check"></i><span>Cartão</span></div></li>
+  </ul>
+  <deposit-continue-btn data-qa="deposit-continue-btn"><button class="btn is-primary">Depositar 0 €</button></deposit-continue-btn>
+  <div class="modal" id="modal-multibanco" hidden>
+    <h3>Multibanco</h3>
+    <label for="deposit-multibanco-entity">Entidade</label>
+    <input id="deposit-multibanco-entity" readonly value="45158">
+    <label for="deposit-multibanco-reference">Referência</label>
+    <input id="deposit-multibanco-reference" readonly value="062029059">
+    <label for="deposit-multibanco-amount">Montante</label>
+    <input id="deposit-multibanco-amount" readonly value="1 €">
+    <p>Esta referência de pagamento é válida por um período de 3 horas e só pode ser usada para um único depósito.</p>
+  </div>
+</body></html>

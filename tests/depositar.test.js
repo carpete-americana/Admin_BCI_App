@@ -330,3 +330,100 @@ test('valorDoDeposito e codigoDoDeposito: iguais aos da extensão nos mesmos cas
     assert.equal(codigoDoDeposito(p), ext.codigoDoDeposito(run, contaId), JSON.stringify([run, contaId]));
   }
 });
+
+// ---------- Betclic ----------
+
+const BC_LOGIN = 'https://www.betclic.pt/login';
+const BC_DEPOSITAR = 'https://pay.betclic.pt/deposit/';
+const BC_DENTRO = '<!doctype html><html><body><header><a class="header_walletBalance" href="/account/wallet">138,09 €</a></header></body></html>';
+
+/**
+ * O caixa da Betclic: o clique num cartão move a marca e o botão diz «Continuar» com o Multibanco.
+ * teimoso: o site ignora o clique no Multibanco e o MB WAY fica marcado. depois: 'modal' (referência) ou 'nada'.
+ */
+function cenarioBetclic({ teimoso = false, depois = 'modal', aoChamar, ...resto } = {}) {
+  let dentro = false;
+  const estado = { cliquesBotao: 0, cliquesMbway: 0 };
+  const preparaCaixa = (w) => {
+    const d = w.document;
+    const campo = d.querySelector('[data-qa="deposit-amount-input-field"]');
+    const botao = d.querySelector('[data-qa="deposit-continue-btn"] button');
+    const marca = d.querySelector('.icon_checkSmall');
+    const mb = d.querySelector('[data-qa="payment-mean-multibanco-wrapper"]');
+    const atualizar = () => { botao.textContent = mb.contains(marca) ? 'Continuar' : `Depositar ${campo.value || 0} €`; };
+    d.querySelector('[data-qa="payment-mean-mbway-wrapper"]').addEventListener('click', () => { estado.cliquesMbway++; });
+    if (!teimoso) {
+      for (const cartao of d.querySelectorAll('[data-qa^="payment-mean-"]')) {
+        cartao.addEventListener('click', () => { cartao.prepend(marca); atualizar(); });
+      }
+    }
+    campo.addEventListener('input', atualizar);
+    botao.addEventListener('click', () => {
+      estado.cliquesBotao++;
+      if (depois === 'modal' && mb.contains(marca)) d.getElementById('modal-multibanco').hidden = false;
+    });
+  };
+  const d = criarDriver({
+    paginas: {
+      [BC_LOGIN]: () => ({ html: dentro ? BC_DENTRO : FORMULARIO }),
+      [BC_DEPOSITAR]: { fixture: 'betclic-depositar', caixa: fixture('betclic-depositar'), caixaUrl: BC_DEPOSITAR, preparaCaixa }
+    },
+    aoChamar: (nome, drv) => {
+      if (nome === 'clicarEntrar' && !dentro) { dentro = true; drv.abrir(BC_LOGIN); }
+      aoChamar?.(nome, drv);
+    },
+    ...resto
+  });
+  return Object.assign(d, { estado });
+}
+const pedidoBetclic = (extra = {}, parametros = {}) => pedido({ casino: 'betclic', ...extra }, parametros);
+
+test('betclic: o ensaio pára antes de Continuar com o Multibanco marcado', async () => {
+  const d = cenarioBetclic();
+  const r = await depositarDaConta(d, pedidoBetclic({ ensaio: true }));
+  assert.deepEqual([r.estado, r.valor], ['ensaio', 20]);
+  assert.ok(!d.nomes().includes('confirmarDeposito'));
+  assert.equal(d.estado.cliquesBotao, 0);
+  const caixa = d.caixa.document;
+  assert.ok(caixa.querySelector('[data-qa="payment-mean-multibanco-wrapper"] .icon_checkSmall'), 'Multibanco marcado');
+});
+
+test('betclic: real devolve entidade 45158 e a referência como texto com o zero à esquerda', async () => {
+  const d = cenarioBetclic();
+  const r = await depositarDaConta(d, pedidoBetclic());
+  assert.equal(r.estado, 'feita');
+  assert.equal(r.entidade, '45158');
+  assert.equal(r.referencia, '062029059');
+  assert.equal(typeof r.referencia, 'string');
+  assert.equal(d.estado.cliquesBotao, 1);
+  assert.equal(d.estado.cliquesMbway, 0, 'o MB WAY nunca é clicado');
+});
+
+test('betclic: com o MB WAY sempre marcado o botão nunca recebe clique', async () => {
+  const d = cenarioBetclic({ teimoso: true });
+  const r = await depositarDaConta(d, pedidoBetclic());
+  assert.equal(r.estado, 'falhada');
+  assert.equal(r.fase, 'caixa');
+  assert.equal(d.estado.cliquesBotao, 0);
+  assert.ok(!d.nomes().includes('confirmarDeposito'));
+});
+
+test('betclic: dúvida depois de Continuar pede verificação', async () => {
+  const d = cenarioBetclic({ depois: 'nada' });
+  const r = await depositarDaConta(d, pedidoBetclic());
+  assert.equal(r.estado, 'verificar');
+  assert.equal(r.fase, 'resultado');
+  assert.equal(d.estado.cliquesBotao, 1);
+});
+
+test('betclic: com código promocional falha antes de entrar ou navegar', async () => {
+  const d = cenarioBetclic();
+  const r = await depositarDaConta(d, pedidoBetclic({}, { codigo: 'BEMVINDO' }));
+  assert.deepEqual([r.estado, r.fase, r.motivo, r.valor, r.codigo], ['falhada', 'codigo', 'Este casino não aceita código promocional', 20, 'BEMVINDO']);
+  assert.equal(d.nomes().length, 0);
+});
+
+test('hostsExtraDe: a Betclic não tem janelas extra e a Placard mantém as suas', () => {
+  assert.deepEqual(hostsExtraDe('betclic'), []);
+  assert.deepEqual(hostsExtraDe('placard'), ['safecharge.com']);
+});
