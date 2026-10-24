@@ -16,6 +16,11 @@ async function seguro(fn, omissao) {
   try { return await fn(); } catch (e) { return omissao; }
 }
 
+// A raiz exata do site: /account também começa pelo endereço dele.
+const eRaiz = (url, alvo) => {
+  try { const u = new URL(url); return u.origin === new URL(alvo).origin && (u.pathname === '/' || u.pathname === ''); } catch (e) { return false; }
+};
+
 const fluxoDe = (chave, fluxoPainel) => C.fluxoEfetivo(chave, fluxoPainel ? [{ ...fluxoPainel, casino_name: C.CASINOS[chave].nome }] : []);
 
 /**
@@ -63,8 +68,9 @@ async function sair(driver, chave, fluxoPainel) {
       return falhada('logout', 'Não foi possível terminar a sessão da conta anterior');
     }
     if (fluxo.postLogoutUrl) {
+      // Como a extensão, até 20 s: abrir o login antes de o site voltar à raiz cortava o logout a meio (Betclic).
       if (fluxo.logoutSuccessUrl) {
-        for (let i = 0; i < 20 && !String(await seguro(() => driver.url(), '')).startsWith(fluxo.logoutSuccessUrl); i++) await driver.esperar(250);
+        for (let i = 0; i < 80 && !eRaiz(await seguro(() => driver.url(), ''), fluxo.logoutSuccessUrl); i++) await driver.esperar(250);
       }
       await seguro(() => driver.navegar(fluxo.postLogoutUrl), null);
     }

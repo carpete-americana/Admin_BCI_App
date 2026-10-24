@@ -307,6 +307,28 @@ test('Betclic: o ecrã da data fora do site do casino não recebe a data', async
   assert.equal(b.d.janela.document.querySelector('[data-qa="birthdate"]').value, '');
 });
 
+test('Betclic: sair espera que o site volte à raiz antes de abrir o login', async () => {
+  const CONTA = `<!doctype html><html><body><header><a href="/account">A minha conta</a></header>
+    <button id="sair">Sair</button><div role="dialog" hidden><button id="sim">Sim</button></div></body></html>`;
+  const d = criarDriver({
+    paginas: { [`${BETCLIC}/account`]: { html: CONTA, preparar: (w) => {
+      const doc = w.document;
+      doc.getElementById('sair').addEventListener('click', () => { doc.querySelector('[role="dialog"]').hidden = false; });
+      doc.getElementById('sim').addEventListener('click', () => { w.__saiu = true; });
+    } }, [`${BETCLIC}/`]: { fixture: 'betclic-sem-sessao' }, [LOGIN_BETCLIC]: { html: FORM_BETCLIC } }
+  });
+  // O site demora a terminar a sessão: só passadas umas esperas volta à raiz.
+  let depois = 0;
+  const esperar = d.esperar;
+  d.esperar = async () => { await esperar(); if (d.janela.__saiu && ++depois === 6) d.abrir(`${BETCLIC}/`); };
+  const navegar = d.navegar;
+  let noLogin = null;
+  d.navegar = async (url) => { if (url === LOGIN_BETCLIC) noLogin = depois; return navegar(url); };
+  await d.navegar(`${BETCLIC}/account`);
+  assert.equal(await sair(d, 'betclic', null), null);
+  assert.equal(noLogin, 6, 'o login só abre depois de o site voltar à raiz');
+});
+
 test('Betclic: sair reconhece a falta de sessão pelo botão Aceder, sem clicar em nada', async () => {
   const d = criarDriver({ paginas: { [`${BETCLIC}/`]: { fixture: 'betclic-sem-sessao' } } });
   await d.navegar(`${BETCLIC}/`);
