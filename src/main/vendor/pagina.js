@@ -141,20 +141,23 @@
     return null;
   }
 
+  const algumVisivel = (seletores) => seletores.some(s => [...document.querySelectorAll(s)].some(vistoPeloUtilizador));
+
   // Só falha com uma mensagem de erro do site; sem ela, e sem sinal de sessão, espera (verificação anti-robô, carregamento).
-  function estadoLogin(seletores, { seletoresErro = [], textosSessao = [] } = {}) {
+  function estadoLogin(seletores, { seletoresErro = [], textosSessao = [], seletoresSessao = [] } = {}) {
     const noFormulario = !!(encontrarCampo(seletores.username) && encontrarCampo(seletores.password));
     const erro = erroVisivel(seletoresErro);
     if (erro) return { estado: 'falhou', erro, noFormulario };
-    if (temTextoEmBotao(textosSessao)) return { estado: 'entrou', erro: null, noFormulario };
+    if (algumVisivel(seletoresSessao) || temTextoEmBotao(textosSessao)) return { estado: 'entrou', erro: null, noFormulario };
     return { estado: 'aguardar', erro: null, noFormulario };
   }
 
   const GATILHOS_EXATOS = ['entrar', 'iniciar sessão', 'login', 'log in'];
 
   // «sem» exige ver o caminho para entrar: um campo solto de email não chega.
-  function estadoSessao(seletores, textosSessao) {
-    if (temTextoEmBotao(textosSessao)) return 'com';
+  function estadoSessao(seletores, textosSessao, sessao = { com: [], sem: [] }) {
+    if (algumVisivel(sessao.com) || temTextoEmBotao(textosSessao)) return 'com';
+    if (algumVisivel(sessao.sem)) return 'sem';
     const botaoEntrar = [...document.querySelectorAll('button, a, [role="button"]')]
       .some(el => GATILHOS_EXATOS.includes(textoDe(el)) && vistoPeloUtilizador(el));
     const formulario = !!(encontrarCampo(seletores.username) && encontrarCampo(seletores.password));
@@ -202,6 +205,25 @@
       if (popup.dismissTexts?.length && clicarPorTexto(popup.dismissTexts)) return true;
     }
     return false;
+  }
+
+  // Uma ação por chamada, entre o login e a sessão aparecer; o site pode reformatar a máscara, daí comparar só dígitos.
+  // Com validado (o motor já carregou em Validar) só diz se o ecrã da data continua: reenviar a data pode bloquear a conta.
+  function passosPosLogin(posLogin, { nascimento = null, popups = [], validado = false } = {}) {
+    const passo = posLogin?.nascimento;
+    const campo = passo ? encontrarCampo([passo.campo]) : null;
+    if (campo) {
+      if (validado) return 'nascimento-pendente';
+      if (!nascimento) return 'sem-nascimento';
+      const digitos = (t) => String(t || '').replace(/\D/g, '');
+      if (digitos(campo.value) !== digitos(nascimento)) { preencher(campo, nascimento); return 'nascimento'; }
+      let botao = null;
+      try { botao = document.querySelector(passo.botao); } catch (e) { /* seletor inválido */ }
+      if (!botao || botao.disabled || botao.getAttribute('aria-disabled') === 'true' || !isVisible(botao, { permissivo: true })) return null;
+      botao.click();
+      return 'validou';
+    }
+    return fecharPopups(popups) ? 'popup' : null;
   }
 
   const TOKENS_CAPTCHA = 'input[name="cf-turnstile-response"], textarea[name="g-recaptcha-response"], textarea[name="h-captcha-response"], input[name*="captcha" i], textarea[name*="captcha" i]';
@@ -313,30 +335,46 @@
   function prepararLevantamento(cfg, valor) {
     const montante = noCaixa(cfg);
     if (!montante) return null;
-    const metodo = document.querySelector(cfg.metodo)?.closest('li');
-    if (!metodo) return { ok: false, motivo: 'O caixa não tem levantamento por SEPA' };
-    if (!metodo.classList.contains('selected')) {
+    const marca = cfg.metodoMarca;
+    const el = document.querySelector(cfg.metodo);
+    const metodo = marca ? el : el?.closest('li');
+    if (!metodo) return { ok: false, motivo: marca ? 'O caixa não tem levantamento por transferência' : 'O caixa não tem levantamento por SEPA' };
+    if (!(marca ? metodo.querySelector(marca) : metodo.classList.contains('selected'))) {
       metodo.click();
-      return { ok: false, motivo: 'O caixa não ficou com o SEPA escolhido' };
+      return { ok: false, motivo: marca ? 'O caixa não ficou com a transferência escolhida' : 'O caixa não ficou com o SEPA escolhido' };
     }
-    const iban = [...document.querySelectorAll(cfg.iban)].map(e => e.closest('li')).find(li => li?.classList.contains('selected'));
+    const iban = marca
+      ? metodo.querySelector(cfg.iban)
+      : [...document.querySelectorAll(cfg.iban)].map(e => e.closest('li')).find(li => li?.classList.contains('selected'));
     if (!iban) return { ok: false, motivo: 'Sem IBAN escolhido no caixa' };
     // Cêntimos com ponto; relido depois, porque um caixa que tire o ponto levantaria cem vezes mais.
     const texto = Number.isInteger(valor) ? String(valor) : Number(valor).toFixed(2);
     if (montante.value !== texto) preencher(montante, texto);
     const escrito = numeroEmEuros(montante.value);
     if (escrito !== Number(valor)) return { ok: false, motivo: `O caixa ficou com «${montante.value}» em vez de ${texto} €` };
-    const botao = document.querySelector(cfg.botao);
+    const botao = botaoDoCaixa(cfg);
     if (!botao) return { ok: false, motivo: 'Sem botão de levantar' };
-    const fim = (iban.textContent || '').replace(/\s+/g, '').slice(-4);
+    // Na Betclic o IBAN vem mascarado com asteriscos: só contam os dígitos.
+    const fim = (iban.textContent || '').replace(marca ? /\D/g : /\s+/g, '').slice(-4);
     if (botao.disabled) return { ok: false, motivo: avisoDoCaixa() || `O botão Levantar não ativou com ${valor} €` };
     return { ok: true, iban: fim ? `…${fim}` : null, motivo: null };
   }
 
   function confirmarLevantamento(cfg) {
     if (!noCaixa(cfg)) return null;
-    const botao = document.querySelector(cfg.botao);
+    const botao = botaoDoCaixa(cfg);
     if (!botao || botao.disabled) return false;
+    botao.click();
+    return true;
+  }
+
+  // Fecha o aviso de sucesso quando o site o deixa aberto por cima do caixa.
+  function fecharResultadoLevantamento(cfg) {
+    if (location.hostname !== cfg.caixaHost) return false;
+    const alvos = (cfg.fecharTexto || []).map(semAcentos);
+    const botao = [...document.querySelectorAll('button, [role="button"]')]
+      .find(b => alvos.some(a => semAcentos(compacto(textoDe(b))) === a) && vistoPeloUtilizador(b));
+    if (!botao) return false;
     botao.click();
     return true;
   }
@@ -355,11 +393,17 @@
   // Depois do clique: o caixa troca o formulário por uma mensagem; sem ela continua a aguardar.
   function resultadoLevantamento(cfg) {
     if (location.hostname !== cfg.caixaHost) return null;
+    if ((cfg.urlsErro || []).some(u => location.pathname.includes(u))) return { estado: 'erro', texto: 'O site mostrou um erro técnico' };
     const sucesso = (cfg.textosSucesso || []).map(t => t.toLowerCase());
     const erro = (cfg.textosErro || []).map(t => t.toLowerCase());
-    for (const el of document.querySelectorAll(MENSAGENS)) {
-      const texto = (el.textContent || '').trim();
-      if (!texto || texto.length > 300 || !vistoPeloUtilizador(el)) continue;
+    const mensagens = [...document.querySelectorAll(MENSAGENS)]
+      .map(el => ({ el, texto: (el.textContent || '').trim() }))
+      .filter(({ el, texto }) => texto && texto.length <= 300 && vistoPeloUtilizador(el));
+    if (cfg.sucessoPrimeiro) {
+      const ok = mensagens.find(({ texto }) => sucesso.some(k => texto.toLowerCase().includes(k)));
+      if (ok) return { estado: 'sucesso', texto: ok.texto.slice(0, 160) };
+    }
+    for (const { texto } of mensagens) {
       const t = texto.toLowerCase();
       if (erro.some(k => t.includes(k))) return { estado: 'erro', texto: texto.slice(0, 160) };
       if (sucesso.some(k => t.includes(k))) return { estado: 'sucesso', texto: texto.slice(0, 160) };
@@ -400,6 +444,7 @@
     for (const seletor of cfg.metodo || []) {
       let el = null;
       try { el = document.querySelector(seletor); } catch (e) { /* seletor inválido */ }
+      if (el && cfg.metodoExato) return el;
       if (el) return el.closest('li, button, label, [role="radio"], [role="tab"], [role="button"]') || el;
     }
     const alvos = (cfg.metodoTexto || []).map(semAcentos);
@@ -413,19 +458,30 @@
   // Só se clica no método uma vez por frame.
   const METODO_CLICADO = '__bciMetodoClicado';
 
+  // Na Betclic o MB WAY vem escolhido e o botão dele pede logo o pagamento no telemóvel da pessoa.
+  function bloqueioDoDeposito(cfg, metodo, botao) {
+    if (cfg.metodoMarca && !metodo?.querySelector(cfg.metodoMarca)) return 'O caixa ainda não escolheu o Multibanco';
+    const rotulos = (cfg.botaoRotulo || []).map(semAcentos);
+    if (rotulos.length && !rotulos.some(r => semAcentos(textoDe(botao)).includes(r))) return 'O botão do caixa não é o de continuar';
+    return null;
+  }
+
   // ok:false não é definitivo: o caixa redesenha o formulário depois de escolher o método e o motor volta a chamar.
   function prepararDeposito(cfg, valor) {
     const montante = campoMontante(cfg);
     const metodo = itemDoMetodo(cfg);
     if (!montante && !metodo) return null;
     if (location.hostname !== cfg.caixaHost && !montante) return null;
-    // Clica sempre, mesmo já escolhido: o caixa só monta o formulário do Multibanco depois do clique.
-    if (metodo && !globalThis[METODO_CLICADO]) {
+    if (cfg.metodoMarca) {
+      if (!metodo) return { ok: false, motivo: 'O caixa não tem depósito por Multibanco' };
+      if (!metodo.querySelector(cfg.metodoMarca)) { metodo.click(); return { ok: false, motivo: 'O caixa ainda não escolheu o Multibanco' }; }
+    } else if (metodo && !globalThis[METODO_CLICADO]) {
+      // Clica sempre, mesmo já escolhido: o caixa só monta o formulário do Multibanco depois do clique.
       globalThis[METODO_CLICADO] = true;
       metodo.click();
       return { ok: false, motivo: 'O caixa ainda não escolheu o Multibanco' };
     }
-    if (!metodo && !globalThis[METODO_CLICADO]) return { ok: false, motivo: 'O caixa não tem depósito por Multibanco' };
+    if (!cfg.metodoMarca && !metodo && !globalThis[METODO_CLICADO]) return { ok: false, motivo: 'O caixa não tem depósito por Multibanco' };
     if (!montante) return { ok: false, motivo: 'O caixa não mostrou o campo do montante' };
     const texto = Number.isInteger(valor) ? String(valor) : Number(valor).toFixed(2);
     if (montante.value !== texto) preencher(montante, texto);
@@ -433,12 +489,15 @@
     if (escrito !== Number(valor)) return { ok: false, motivo: `O caixa ficou com «${montante.value}» em vez de ${texto} €` };
     const botao = botaoDeDeposito(cfg);
     if (!botao) return { ok: false, motivo: 'Sem botão de depositar' };
+    const bloqueio = bloqueioDoDeposito(cfg, metodo, botao);
+    if (bloqueio) return { ok: false, motivo: bloqueio };
     if (botao.disabled) return { ok: false, motivo: avisoDoCaixa() || `O botão Depositar não ativou com ${valor} €` };
     return { ok: true, motivo: null };
   }
 
-  function botaoDeDeposito(cfg) {
-    for (const seletor of cfg.botao || []) {
+  // cfg.botao: seletor ou lista deles; senão o botão visível pelo texto (cfg.botaoTexto).
+  function botaoDoCaixa(cfg) {
+    for (const seletor of [].concat(cfg.botao || [])) {
       let el = null;
       try { el = document.querySelector(seletor); } catch (e) { /* seletor inválido */ }
       if (el) return el;
@@ -448,10 +507,12 @@
       .find(b => alvos.some(a => semAcentos(textoDe(b)).includes(a)) && vistoPeloUtilizador(b)) || null;
   }
 
+  const botaoDeDeposito = botaoDoCaixa;
+
   function confirmarDeposito(cfg) {
     if (!campoMontante(cfg)) return null;
     const botao = botaoDeDeposito(cfg);
-    if (!botao || botao.disabled) return false;
+    if (!botao || botao.disabled || bloqueioDoDeposito(cfg, itemDoMetodo(cfg), botao)) return false;
     botao.click();
     return true;
   }
@@ -561,16 +622,40 @@
     return { entidade, referencia, montante, validade };
   }
 
+  /** Dia local (AAAA-MM-DD) de agora mais as horas que o texto indica; null sem elas. */
+  function validadeDeHoras(texto, padrao, agora = new Date()) {
+    let m = null;
+    try { m = padrao && compacto(texto).match(new RegExp(padrao, 'i')); } catch (e) { /* padrão inválido */ }
+    const horas = Number(m?.[1]);
+    if (!Number.isFinite(horas)) return null;
+    const d = new Date(agora.getTime() + horas * 3600e3);
+    return dataIso(d.getDate(), d.getMonth() + 1, d.getFullYear());
+  }
+
+  // Os valores do modal da Betclic estão em .value de campos só de leitura, fora do texto da página.
+  function referenciaDosCampos(cfg) {
+    const valor = (seletor) => {
+      let el = null;
+      try { el = seletor && document.querySelector(seletor); } catch (e) { /* seletor inválido */ }
+      return el && isVisible(el, { permissivo: true }) ? String(el.value || '').replace(/\s+/g, '') : '';
+    };
+    const entidade = valor(cfg.referencia.entidade);
+    const referencia = valor(cfg.referencia.referencia);
+    if (!/^\d{4,10}$/.test(entidade) || !/^\d{6,20}$/.test(referencia)) return null;
+    return { entidade, referencia, montante: numeroEmEuros(valor(cfg.referencia.montante)), validade: validadeDeHoras(textoDaPagina(), cfg.validadeTexto) };
+  }
+
   // Corre em todos os frames: só o que mostra a referência responde.
-  function lerReferenciaMB() {
-    return extrairReferenciaMB(textoDaPagina());
+  function lerReferenciaMB(cfg) {
+    return (cfg?.referencia && referenciaDosCampos(cfg)) || extrairReferenciaMB(textoDaPagina());
   }
 
   // Depois do clique: a referência, uma recusa do caixa ou ainda nada. Só olha para o frame do caixa.
   function resultadoDeposito(cfg) {
-    const ref = lerReferenciaMB();
+    const ref = lerReferenciaMB(cfg);
     if (ref) return { estado: 'referencia', ...ref };
     if (location.hostname !== cfg.caixaHost) return null;
+    if ((cfg.urlsErro || []).some(u => location.pathname.includes(u))) return { estado: 'erro', texto: 'O site mostrou um erro técnico' };
     const erro = (cfg.textosErro || []).map(semAcentos);
     for (const el of document.querySelectorAll('[role="alert"], [class*="error" i], [class*="invalid" i], h1, h2, h3, h4, p')) {
       const texto = compacto(el.textContent);
@@ -581,9 +666,9 @@
   }
 
   globalThis.__bciPagina = {
-    abrirDetalhesPessoais, lerDetalhesPessoais, lerSaldo, prepararLevantamento, confirmarLevantamento, resultadoLevantamento,
-    prepararDeposito, confirmarDeposito, aplicarCodigo, erroDoCodigo, estadoDoCodigo, lerReferenciaMB, extrairReferenciaMB, resultadoDeposito,
+    abrirDetalhesPessoais, lerDetalhesPessoais, lerSaldo, prepararLevantamento, confirmarLevantamento, resultadoLevantamento, fecharResultadoLevantamento, botaoDoCaixa,
+    prepararDeposito, confirmarDeposito, aplicarCodigo, erroDoCodigo, estadoDoCodigo, lerReferenciaMB, extrairReferenciaMB, validadeDeHoras, resultadoDeposito,
     isVisible, vistoPeloUtilizador, encontrarCampo, usernamePerto, preencher, clicarPorTexto, clicarEntrar,
-    camposProntos, estadoLogin, estadoSessao, fecharPopups, fecharAvisoDeSaida, captchaPendente, passoLogout, abrirMenuConta, clicarEscondidoPorTexto
+    camposProntos, estadoLogin, estadoSessao, fecharPopups, passosPosLogin, fecharAvisoDeSaida, captchaPendente, passoLogout, abrirMenuConta, clicarEscondidoPorTexto
   };
 })();

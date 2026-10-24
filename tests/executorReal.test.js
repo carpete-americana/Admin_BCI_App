@@ -271,3 +271,92 @@ test('motor que não acabou (tempo esgotado) ou rebentou: não mexe na sessão',
   await rebentou.executar(TAREFA, rebentou.io);
   assert.equal(rebentou.chamadas.sair.length, 0);
 });
+
+// ---------- data de nascimento (Betclic) ----------
+
+const NASC = vetor.nascimento;
+const BETCLIC = { ...TAREFA, casino: 'Betclic' };
+const { nascimentoCifrado: _semUso, ...ENTREGA_SEM_DATA } = ENTREGA;
+
+// Corre o executor até ao fim em cada desfecho e devolve o que o motor viu e o que ficou registado.
+async function emCadaDesfecho(fn) {
+  const desfechos = {
+    feita: async () => ({ estado: 'feita', saldo: 30, valor: 20 }),
+    falhada: async () => ({ estado: 'falhada', fase: 'login', motivo: 'Login recusado' }),
+    excecao: async (d, pedido) => { throw new Error(`rebentou com ${pedido.credencial.nascimento}`); },
+    tempo: () => new Promise(() => {})
+  };
+  for (const [nome, corpo] of Object.entries(desfechos)) {
+    let disparar;
+    let visto;
+    let pedidoVisto;
+    const relogio = nome === 'tempo' ? { setTimeoutFn: (f) => { disparar = f; return 1; }, clearTimeoutFn: () => {} } : {};
+    const { executar, io, registo } = montar({
+      relogio,
+      motor: async (d, pedido, aoPasso) => { visto = pedido.credencial.nascimento; pedidoVisto = pedido; await aoPasso('a-entrar'); return corpo(d, pedido); }
+    });
+    const p = executar(BETCLIC, io);
+    if (nome === 'tempo') { await new Promise(r => setImmediate(r)); disparar(); }
+    await p;
+    await fn(nome, { visto, pedido: pedidoVisto, registo });
+  }
+}
+
+test('Betclic com nascimentoCifrado: o motor recebe a data decifrada na credencial', async () => {
+  let dentro;
+  const { executar, io, chamadas } = montar({ motor: async (d, pedido) => { dentro = pedido.credencial.nascimento; return { estado: 'feita' }; } });
+  await executar(BETCLIC, io);
+  assert.equal(chamadas.levantar[0][1].casino, 'betclic');
+  assert.equal(dentro, NASC);
+});
+
+test('sem nascimentoCifrado o motor recebe nascimento null', async () => {
+  let dentro = 'por-ler';
+  const { executar, io, registo } = montar({ resposta: ENTREGA_SEM_DATA, motor: async (d, pedido) => { dentro = pedido.credencial.nascimento; return { estado: 'feita' }; } });
+  await executar(BETCLIC, io);
+  assert.equal(dentro, null);
+  assert.equal(concluido(registo).estado, 'feita');
+});
+
+test('nascimentoCifrado estragado: falhada na fase credencial, sem janela nem motor', async () => {
+  const tag = Buffer.from(ENTREGA.nascimentoCifrado.tag, 'base64'); tag[0] ^= 1;
+  const estragada = { ...ENTREGA, nascimentoCifrado: { ...ENTREGA.nascimentoCifrado, tag: tag.toString('base64') } };
+  const { executar, io, registo, chamadas } = montar({ resposta: estragada });
+  await executar(BETCLIC, io);
+  const c = concluido(registo);
+  assert.equal(c.estado, 'falhada');
+  assert.deepEqual(c.resultado, { fase: 'credencial', motivo: 'Não foi possível abrir a credencial' });
+  assert.equal(chamadas.criarJanela.length, 0);
+  assert.equal(chamadas.levantar.length, 0);
+  assert.ok(!JSON.stringify(registo).includes(SENHA));
+});
+
+test('feita, falhada, exceção e tempo esgotado: a data e a password ficam limpas no fim', async () => {
+  await emCadaDesfecho((nome, { visto, pedido }) => {
+    assert.equal(visto, NASC, `${nome}: o motor recebeu a data`);
+    assert.equal(pedido.credencial.nascimento, null, `${nome}: data limpa`);
+    assert.equal(pedido.credencial.password, null, `${nome}: password limpa`);
+  });
+});
+
+test('a data não sai em resultado, progresso, mensagem das falhas nem no objeto do concluir', async () => {
+  await emCadaDesfecho((nome, { visto, registo }) => {
+    assert.equal(visto, NASC, `${nome}: o motor recebeu a data`);
+    assert.ok(registo.some(x => x.io === 'progresso'), `${nome}: houve progresso`);
+    assert.ok(!JSON.stringify(registo).includes(NASC), `${nome}: data fora do registo`);
+    assert.ok(!JSON.stringify(concluido(registo)).includes(NASC), `${nome}: data fora do concluir`);
+  });
+});
+
+test('mesmo que o motor devolva a credencial ou a data, o concluir só leva os campos conhecidos', async () => {
+  for (const tipo of ['levantar', 'depositar']) {
+    const { executar, io, registo } = montar({
+      motor: async (d, pedido) => ({ estado: 'falhada', fase: 'login', nascimento: pedido.credencial.nascimento, credencial: { ...pedido.credencial }, extra: `data ${pedido.credencial.nascimento}` })
+    });
+    await executar({ ...BETCLIC, tipo, parametros: { valor: 20 } }, io);
+    const c = concluido(registo);
+    assert.equal(c.resultado.fase, 'login');
+    assert.ok(!JSON.stringify(c).includes(NASC), tipo);
+    assert.ok(!JSON.stringify(c).includes(SENHA), tipo);
+  }
+});

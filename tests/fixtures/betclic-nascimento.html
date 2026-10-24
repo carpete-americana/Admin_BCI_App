@@ -1,0 +1,10 @@
+<!doctype html><html><body>
+<main><h1>Confirma a tua data de nascimento</h1>
+<input id="date" data-qa="birthdate" type="tel" maxlength="10" placeholder="DD/MM/AAAA">
+<button data-qa="validate_birthdate_button" disabled>Validar</button></main>
+<script>
+document.getElementById('date').addEventListener('input', (e) => {
+  document.querySelector('[data-qa="validate_birthdate_button"]').disabled = e.target.value.length !== 10;
+});
+</script>
+</body></html>

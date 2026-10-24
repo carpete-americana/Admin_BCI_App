@@ -26,6 +26,8 @@ function codigoDoDeposito(parametros) {
 /** Onde o caixa pode abrir a janela da referência: o domínio do caixa (e subdomínios) e os hostsExtra. */
 function hostsExtraDe(casino) {
   const cfg = C.CASINOS[casino]?.depositar;
+  // Sem hostsExtra a referência vem no próprio caixa (Betclic): não há janela noutro domínio para autorizar.
+  if (!cfg?.hostsExtra?.length) return [];
   // secure.safecharge.com → safecharge.com: o caixa abre review.do e a referência vem noutro subdomínio (cdn).
   const dominio = cfg?.caixaHost?.split('.').length > 2 ? cfg.caixaHost.split('.').slice(1).join('.') : cfg?.caixaHost;
   const hosts = [dominio, ...(cfg?.hostsExtra || [])].filter(Boolean);
@@ -47,6 +49,8 @@ async function depositarDaConta(driver, { casino, fluxo, credencial, parametros,
   if (codigo && cfg.codigoMax && codigo.length > cfg.codigoMax) {
     return falhada('codigo', `O código tem mais de ${cfg.codigoMax} caracteres, o máximo que o caixa aceita`, extra);
   }
+
+  if (codigo && !cfg.codigo && !cfg.abrirCodigoCaixa) return falhada('codigo', 'Este casino não aceita código promocional', extra);
 
   const passo = async (nome, info) => { await seguro(() => aoPasso?.(nome, info), null); };
   const est = { confirmado: false };

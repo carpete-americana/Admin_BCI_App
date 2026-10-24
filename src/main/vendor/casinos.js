@@ -76,7 +76,48 @@
         logoutTexts: ['sair'],
         confirmTexts: ['sim']
       },
-      popups: [{ label: 'Confirmação de telefone', dismissTexts: ['fazer mais tarde', 'mais tarde'] }]
+      popups: [{ label: 'Confirmação de telefone', dismissTexts: ['mais tarde'], selector: 'button[data-qa="cancel_phone-confirmation_button"]' }],
+      sessao: {
+        com: ['a.header_walletBalance', 'a[href="/account"]', '[data-qa="paymentUserTotalBalance"]'],
+        sem: ['[data-qa="commonSignInButton"]']
+      },
+      posLogin: { nascimento: { campo: '[data-qa="birthdate"]', botao: '[data-qa="validate_birthdate_button"]' } },
+      levantar: {
+        inicio: 'https://www.betclic.pt/',
+        url: 'https://pay.betclic.pt/withdraw/',
+        caixaHost: 'pay.betclic.pt',
+        montante: '[data-qa="withdraw-amount-input-field"]',
+        saldo: '[data-qa="withdraw-remaining-amount-limits"]',
+        metodo: '[data-qa="payment-mean-banktransfer-wrapper"]',
+        metodoMarca: '.icon_checkSmall',
+        iban: '[data-qa="payment-mean-subtext"]',
+        // O único is-primary da página é «Levantar N €»; o texto fica de recurso.
+        botao: 'button.btn.is-primary',
+        botaoTexto: ['levantar'],
+        fecharTexto: ['feito'],
+        textosSucesso: ['pedido confirmado'],
+        // O modal de sucesso pode ter linhas de ajuda por perto: vê-se primeiro.
+        sucessoPrimeiro: true,
+        // Só frases vistas no site; palavras soltas apanhavam linhas de ajuda.
+        textosErro: ['estamos com problemas', 'tenta mais tarde'],
+        urlsErro: ['/withdraw/error/']
+      },
+      // O botão real está dentro do elemento data-qa; só o cartão escolhido tem .icon_checkSmall.
+      depositar: {
+        inicio: 'https://www.betclic.pt/',
+        url: 'https://pay.betclic.pt/deposit/',
+        caixaHost: 'pay.betclic.pt',
+        montante: ['[data-qa="deposit-amount-input-field"]'],
+        metodo: ['[data-qa="payment-mean-multibanco-wrapper"]'],
+        metodoExato: true,
+        metodoMarca: '.icon_checkSmall',
+        botao: ['[data-qa="deposit-continue-btn"] button'],
+        botaoRotulo: ['continuar'],
+        referencia: { entidade: '#deposit-multibanco-entity', referencia: '#deposit-multibanco-reference', montante: '#deposit-multibanco-amount' },
+        validadeTexto: 'válida por um período de (\\d+) horas?',
+        textosErro: ['estamos com problemas', 'tenta mais tarde'],
+        urlsErro: ['/deposit/error/']
+      }
     },
     placard: {
       nome: 'Placard',
@@ -264,8 +305,9 @@
       : null;
     const extraPopups = popupsPainel || CASINOS[chave]?.popups || [];
     const label = CASINOS[chave]?.nome || linha?.casino_name || chave;
+    const posLogin = CASINOS[chave]?.posLogin || null;
 
-    if (!linha) return fixo ? { label, ...fixo, extraPopups } : { label, extraPopups };
+    if (!linha) return fixo ? { label, ...fixo, extraPopups, posLogin } : { label, extraPopups, posLogin };
 
     return {
       label,
@@ -277,8 +319,33 @@
       confirmTexts: lista(linha.confirm_texts) || fixo?.confirmTexts || null,
       seletorSair: fixo?.seletorSair || null,
       loginTriggerTexts: lista(linha.login_trigger_texts),
-      extraPopups
+      extraPopups,
+      posLogin
     };
+  }
+
+  function sessaoDe(chave) {
+    const s = CASINOS[chave]?.sessao;
+    return { com: s?.com || [], sem: s?.sem || [] };
+  }
+
+  // 'dd/mm/aaaa' ou null. O mysql2 dá o DATE como meia-noite local e o JSON leva-o em UTC: com hora, contam os componentes locais.
+  function dataParaCampo(valor) {
+    let ano, mes, dia;
+    const eData = Object.prototype.toString.call(valor) === '[object Date]';
+    if (typeof valor === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(valor)) {
+      [ano, mes, dia] = valor.split('-').map(Number);
+    } else if (eData || (typeof valor === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:?\d{2})?$/.test(valor))) {
+      const d = new Date(valor);
+      if (Number.isNaN(d.getTime())) return null;
+      [ano, mes, dia] = [d.getFullYear(), d.getMonth() + 1, d.getDate()];
+    } else {
+      return null;
+    }
+    const real = new Date(ano, mes - 1, dia);
+    if (real.getFullYear() !== ano || real.getMonth() !== mes - 1 || real.getDate() !== dia) return null;
+    const dois = (n) => String(n).padStart(2, '0');
+    return `${dois(dia)}/${dois(mes)}/${ano}`;
   }
 
   function seletoresErroDe(chave) {
@@ -319,7 +386,7 @@
   const BCI_CASINOS = {
     CASINOS, SELETORES_GENERICOS, LOGOUT_GENERICO, TEXTOS_GATILHO_LOGIN, TEXTOS_BOTAO_ENTRAR, SELETORES_BOTAO_ENTRAR,
     TEXTOS_SESSAO_INICIADA, SELETORES_MENU_CONTA, TEXTOS_MENU_CONTA,
-    casinoDoUrl, contaPertenceAoCasino, seletoresDe, seletoresErroDe, fluxoEfetivo, shortName, contaPelosDados, mesmoTelefone
+    casinoDoUrl, contaPertenceAoCasino, seletoresDe, seletoresErroDe, fluxoEfetivo, sessaoDe, dataParaCampo, shortName, contaPelosDados, mesmoTelefone
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = BCI_CASINOS;
   else globalThis.BCI_CASINOS = BCI_CASINOS;

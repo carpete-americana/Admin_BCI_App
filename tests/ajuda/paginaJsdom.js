@@ -40,7 +40,7 @@ function abrirJanela(html, url, preparar) {
 const correr = (w, nome, args) => w.eval(`(${correrNaPagina})(...${JSON.stringify([nome, ...args])})`);
 
 /**
- * paginas: { [url]: página | () => página }, com página = { html | fixture, caixa?: html, preparar?(w), preparaCaixa?(w) }.
+ * paginas: { [url]: página | () => página }, com página = { html | fixture, caixa?: html, caixaUrl?, preparar?(w), preparaCaixa?(w) }.
  * aoChamar(nome, driver) corre depois de cada chamada à página (deixa o teste trocar o ecrã); falhar(nome) true rebenta a chamada.
  * As chamadas às janelas novas registam-se e falham como `janelas:<nome>`.
  */
@@ -70,7 +70,7 @@ function criarDriver({ paginas = {}, aoChamar, falhar = () => false } = {}) {
       const p = (typeof resolvida === 'function' ? resolvida() : resolvida) || { html: VAZIA };
       atual = url;
       frame = abrirJanela(p.fixture ? fixture(p.fixture) : p.html, url, p.preparar);
-      caixa = p.caixa ? abrirJanela(p.caixa, 'https://secure.safecharge.com/ppp/pppadapter.do', p.preparaCaixa) : null;
+      caixa = p.caixa ? abrirJanela(p.caixa, p.caixaUrl || 'https://secure.safecharge.com/ppp/pppadapter.do', p.preparaCaixa) : null;
     },
 
     async url() { chamadas.push({ nome: 'url' }); return atual; },

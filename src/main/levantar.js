@@ -116,7 +116,11 @@ async function levantarDaConta(driver, { casino, fluxo, credencial, parametros, 
     for (let i = 0; i < LIMITES.resultado; i++) {
       await driver.esperar(500);
       const r = await seguro(() => driver.naCaixa('resultadoLevantamento', cfg), null);
-      if (r?.estado === 'sucesso') return { estado: 'feita', saldo: est.saldo, valor: est.valor, iban: prep.iban, motivo: r.texto };
+      if (r?.estado === 'sucesso') {
+        // Fecha o aviso de sucesso para deixar o caixa limpo para a conta seguinte; se falhar o pedido já está feito.
+        if (cfg.fecharTexto) await seguro(() => driver.naCaixa('fecharResultadoLevantamento', cfg), null);
+        return { estado: 'feita', saldo: est.saldo, valor: est.valor, iban: prep.iban, motivo: r.texto };
+      }
       if (r?.estado === 'erro') return falhada('caixa', r.texto, { saldo: est.saldo, valor: est.valor });
     }
     // Sem resposta clara pode ter saído dinheiro: pára para não seguir às cegas.

@@ -3,10 +3,16 @@
   "publica": "8R3fV5qciyymPL3YOebjnRugOyy3rQ3O4GCqaWWoZCs=",
   "tarefaId": 4242,
   "texto": "senha-de-teste-ç€",
+  "nascimento": "15/08/1990",
   "entrega": {
     "epk": "oJk6QPDRtSJ8SZHeQhhkHyijLU3IN0y3VPo99wVuJx0=",
     "iv": "5LNmOt7IOcbhxEj3",
     "tag": "cNiObYQHLi94jRpZtqJPJw==",
-    "cifrado": "MDMybjZxWeusXe0et6WW07UDwhs="
+    "cifrado": "MDMybjZxWeusXe0et6WW07UDwhs=",
+    "nascimentoCifrado": {
+      "iv": "gSXM/vZk3M+CbaIM",
+      "tag": "cbwnOjHUoKMy8lHNpqxrzQ==",
+      "cifrado": "nrNRZQkyk2k6Kg=="
+    }
   }
 }
