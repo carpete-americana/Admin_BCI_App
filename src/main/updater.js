@@ -1,5 +1,5 @@
 const { autoUpdater } = require('electron-updater');
-const { BrowserWindow, ipcMain } = require('electron');
+const { BrowserWindow, ipcMain, powerMonitor } = require('electron');
 const { DEBUG, API_CONFIG } = require('./config');
 const log = require('electron-log');
 const fs = require('fs');
@@ -22,6 +22,13 @@ let downloadInProgress = false;
 let caminhoInstaladorDescarregado = null;
 // SHA-256 publicado na release; volta a verificar-se mesmo antes de executar.
 let sha256Esperado = null;
+
+// Instalação automática: só com a app parada (sem trabalho em curso e sem ninguém a usá-la).
+const INSTALACAO_VERIFICAR_MS = 30 * 1000;
+const INATIVO_MIN_SEG = 5 * 60;
+let estaOcupado = () => false;
+let versaoDescarregada = null;
+let temporizadorInstalacao = null;
 
 function enviarATodas(canal, dados) {
   BrowserWindow.getAllWindows().forEach(win => {
@@ -67,18 +74,16 @@ async function checkForUpdatesViaBackend() {
         console.log('');
       }
       
-      const wins = BrowserWindow.getAllWindows();
-      wins.forEach(win => {
-        if (!win.isDestroyed()) {
-          updateInfo = {
-            version: latestVersion,
-            name: data.releaseName,
-            description: data.description,
-            assets: data.assets
-          };
-          win.webContents.send('update-available', updateInfo);
-        }
-      });
+      updateInfo = {
+        version: latestVersion,
+        name: data.releaseName,
+        description: data.description,
+        assets: data.assets
+      };
+      if (versaoDescarregada !== latestVersion) {
+        enviarATodas('update-available', updateInfo);
+        descarregarAtualizacao();
+      }
     } else if (DEBUG) {
       console.log('[UPDATER] ✓ App já está atualizada. Versão:', currentVersion);
     }
@@ -91,8 +96,10 @@ async function checkForUpdatesViaBackend() {
   }
 }
 
-function setupUpdateHandlers() {
-  ipcMain.on('download-update', async () => {
+/** Descarrega e verifica o instalador da versão em updateInfo; chamada à mão ou logo que se deteta a versão. */
+async function descarregarAtualizacao() {
+  {
+    if (downloadInProgress) return;
     if (DEBUG) console.log('[UPDATER] Starting update download');
     
     if (!updateInfo || !updateInfo.assets || updateInfo.assets.length === 0) {
@@ -151,8 +158,10 @@ function setupUpdateHandlers() {
       sha256Esperado = sha256;
       log.info('[UPDATER] Instalador descarregado e verificado:', installerPath);
 
+      versaoDescarregada = updateInfo.version;
       enviarATodas('update-downloaded', { version: updateInfo.version, installerPath });
       downloadInProgress = false;
+      agendarInstalacao();
 
     } catch (err) {
       downloadInProgress = false;
@@ -160,16 +169,19 @@ function setupUpdateHandlers() {
       log.error('[UPDATER] Download error:', err);
       enviarATodas('update-error', { message: 'Erro ao fazer download: ' + err.message });
     }
-  });
+  }
+}
 
-  ipcMain.on('install-and-update', async (event) => {
+/** Corre o instalador verificado em silêncio e reabre a app. aoErro recebe a mensagem se algo falhar. */
+async function instalarAtualizacao(aoErro) {
+  {
     // O caminho vindo do renderer é ignorado: só se executa o instalador descarregado nesta sessão.
     const installerPath = caminhoInstaladorDescarregado;
     if (DEBUG) console.log('[UPDATER] Installer:', installerPath);
 
     try {
       if (!installerPath || !sha256Esperado || !fs.existsSync(installerPath)) {
-        event.reply('update-error', { message: 'Arquivo de instalação não encontrado' });
+        aoErro({ message: 'Arquivo de instalação não encontrado' });
         return;
       }
 
@@ -182,6 +194,8 @@ function setupUpdateHandlers() {
       await confirmarInstalador(finalInstallerPath, sha256Esperado);
       log.info('[UPDATER] Executando instalador verificado:', finalInstallerPath);
 
+      if (temporizadorInstalacao) clearInterval(temporizadorInstalacao);
+      temporizadorInstalacao = null;
       BrowserWindow.getAllWindows().forEach(win => {
         if (!win.isDestroyed()) win.destroy();
       });
@@ -211,9 +225,41 @@ objShell.Run "${appExePath}", 0, False`;
     } catch (e) {
       if (DEBUG) console.error('[UPDATER] Install error:', e);
       log.error('[UPDATER] Install error:', e);
-      event.reply('update-error', { message: 'Erro ao instalar atualização: ' + e.message });
+      caminhoInstaladorDescarregado = null;
+      versaoDescarregada = null;
+      aoErro({ message: 'Erro ao instalar atualização: ' + e.message });
     }
-  });
+  }
+}
+
+/** Pura, para testar: instala-se sozinha com o instalador pronto, sem trabalho e sem ninguém a usar a app. */
+function podeInstalarAgora({ pronto, ocupado, janelasVisiveis, inativoSeg }) {
+  if (!pronto || ocupado) return false;
+  return janelasVisiveis === 0 || inativoSeg >= INATIVO_MIN_SEG;
+}
+
+function tentarInstalarSozinha() {
+  let inativoSeg = 0;
+  try { inativoSeg = powerMonitor.getSystemIdleTime(); } catch { /* sem o monitor, só conta a janela */ }
+  const janelasVisiveis = BrowserWindow.getAllWindows()
+    .filter(w => !w.isDestroyed() && w.isVisible() && !w.isMinimized()).length;
+  const pronto = !!caminhoInstaladorDescarregado && !downloadInProgress;
+  if (!podeInstalarAgora({ pronto, ocupado: estaOcupado(), janelasVisiveis, inativoSeg })) return;
+  log.info('[UPDATER] A instalar a atualização automaticamente');
+  instalarAtualizacao((erro) => enviarATodas('update-error', erro));
+}
+
+function agendarInstalacao() {
+  if (temporizadorInstalacao) return;
+  temporizadorInstalacao = setInterval(tentarInstalarSozinha, INSTALACAO_VERIFICAR_MS);
+  temporizadorInstalacao.unref?.();
+  tentarInstalarSozinha();
+}
+
+function setupUpdateHandlers({ ocupado } = {}) {
+  if (typeof ocupado === 'function') estaOcupado = ocupado;
+  ipcMain.on('download-update', () => { descarregarAtualizacao(); });
+  ipcMain.on('install-and-update', (event) => { instalarAtualizacao((erro) => event.reply('update-error', erro)); });
 }
 
 function checkForUpdates() {
@@ -241,6 +287,7 @@ function checkForUpdates() {
 }
 
 module.exports = {
+  podeInstalarAgora,
   setupUpdateHandlers,
   checkForUpdates,
   simulateUpdateAvailable

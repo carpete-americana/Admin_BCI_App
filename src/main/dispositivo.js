@@ -470,7 +470,9 @@ function criarDispositivo(deps) {
   // aguardarTarefa: para os testes e para o fecho da app esperarem pela tarefa em curso.
   return {
     iniciar, parar, terminar, estado, aceitar, revogar, definirArranque, aoTerminarSessao, perguntarSeFaltar,
-    aguardarTarefa: () => execucao || Promise.resolve(), ocupado: () => !!execucao
+    aguardarTarefa: () => execucao || Promise.resolve(), ocupado: () => !!execucao,
+    // Também entre contas de um pacote (pausa): reiniciar aí largava o resto do pacote.
+    emTrabalho: () => !!execucao || estadoPc.pc === 'a-trabalhar' || estadoPc.pc === 'em-pausa'
   };
 }
 

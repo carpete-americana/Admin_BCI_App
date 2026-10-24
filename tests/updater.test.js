@@ -39,3 +39,12 @@ test('em produção volta a procurar atualizações de hora a hora', (t) => {
   mock.timers.tick(60 * 60 * 1000);
   assert.strictEqual(pedidos, 2, 'segunda verificação uma hora depois');
 });
+test('instala-se sozinha só com a app parada', () => {
+  const { podeInstalarAgora } = carregarUpdater();
+  const base = { pronto: true, ocupado: false, janelasVisiveis: 0, inativoSeg: 0 };
+  assert.strictEqual(podeInstalarAgora(base), true, 'sem janelas e sem trabalho');
+  assert.strictEqual(podeInstalarAgora({ ...base, pronto: false }), false, 'sem instalador verificado');
+  assert.strictEqual(podeInstalarAgora({ ...base, ocupado: true }), false, 'com uma conta a decorrer');
+  assert.strictEqual(podeInstalarAgora({ ...base, janelasVisiveis: 1, inativoSeg: 30 }), false, 'a pessoa está a usá-la');
+  assert.strictEqual(podeInstalarAgora({ ...base, janelasVisiveis: 1, inativoSeg: 600 }), true, 'janela aberta mas PC parado há 10 min');
+});
