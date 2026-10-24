@@ -12,7 +12,7 @@ const vetor = require('./fixtures/entrega-vetor.json');
 
 const API = path.join(__dirname, '..', '..', 'API', 'services', 'operacoes', 'cifraEntrega.js');
 const BLOCO = /\/\/ <decifrar>[\s\S]*?\/\/ <\/decifrar>/;
-const BLOCO_NASC = /// <decifrar-nascimento>[sS]*?// </decifrar-nascimento>/;
+const BLOCO_NASC = /\/\/ <decifrar-nascimento>[\s\S]*?\/\/ <\/decifrar-nascimento>/;
 
 test('abre o vetor partilhado com a API', () => {
   assert.equal(decifrarEntrega(vetor.privada, vetor.tarefaId, vetor.entrega), vetor.texto);
@@ -49,6 +49,6 @@ test('o bloco de decifrar é igual byte a byte ao da API', { skip: !fs.existsSyn
 test('o bloco de decifrar a data é igual byte a byte ao da API', { skip: !fs.existsSync(API) && 'API/ não está ao lado da app (repo clonado sozinho)' }, () => {
   const daApi = fs.readFileSync(API, 'utf8').match(BLOCO_NASC);
   const local = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'entregaCifra.js'), 'utf8').match(BLOCO_NASC);
-  assert.ok(daApi && local, 'marcadores em falta');
+  assert.ok(daApi && local && daApi[0].length > 0 && local[0].length > 0, 'marcadores em falta');
   assert.equal(local[0], daApi[0]);
 });
