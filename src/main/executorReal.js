@@ -2,10 +2,10 @@
 
 /**
  * Executor real de uma conta: pede a credencial, abre a janela escondida, corre o motor e conclui.
- * A password só existe aqui, em memória, entre decifrar e entregar ao motor: nunca vai a registos, a `io` nem à janela.
+ * A password e a data de nascimento só existem aqui, em memória, entre decifrar e entregar ao motor: nunca vão a registos, a `io` nem à janela.
  */
 
-const { decifrarEntrega } = require('./entregaCifra');
+const { decifrarEntrega, decifrarNascimento } = require('./entregaCifra');
 const { chaveDoNome } = require('./levantar');
 const { hostsExtraDe } = require('./depositar');
 const { sair: sairDoCasino } = require('./sessaoCasino');
@@ -66,10 +66,14 @@ function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, sair =
       return io.concluir('falhada', { fase: 'credencial', motivo: 'Não foi possível pedir a credencial' });
     }
 
-    const credencial = { username: dados?.username, password: null };
+    const credencial = { username: dados?.username, password: null, nascimento: null };
     try {
-      credencial.password = decifrarEntrega(await ctx.privada(), id, dados);
+      const privada = await ctx.privada();
+      credencial.password = decifrarEntrega(privada, id, dados);
+      credencial.nascimento = decifrarNascimento(privada, id, dados);
     } catch (e) {
+      credencial.password = null;
+      credencial.nascimento = null;
       return io.concluir('falhada', { fase: 'credencial', motivo: 'Não foi possível abrir a credencial' });
     }
 
@@ -95,6 +99,7 @@ function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, sair =
     } finally {
       terminado = true;
       credencial.password = null;
+      credencial.nascimento = null;
       if (temporizador) clearTimeoutFn(temporizador);
       // O browser é partilhado pelas contas do casino: não fica aberta a sessão desta. Com o motor ainda a correr (tempo esgotado) não se mexe.
       if (janela && acabou) {
