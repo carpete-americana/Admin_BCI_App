@@ -24,7 +24,7 @@ const fluxoDe = (chave, fluxoPainel) => C.fluxoEfetivo(chave, fluxoPainel ? [{ .
 async function sair(driver, chave, fluxoPainel) {
   const s = C.seletoresDe(chave);
   const fluxo = fluxoDe(chave, fluxoPainel);
-  const sessao = () => seguro(() => driver.naPagina('estadoSessao', s, C.TEXTOS_SESSAO_INICIADA), '?');
+  const sessao = () => seguro(() => driver.naPagina('estadoSessao', s, C.TEXTOS_SESSAO_INICIADA, C.sessaoDe(chave)), '?');
   const esperarSaida = async (tentativas) => {
     for (let i = 0; i < tentativas; i++) {
       await seguro(() => driver.naPagina('fecharAvisoDeSaida'), false);
@@ -93,7 +93,7 @@ async function entrar(driver, chave, fluxoPainel, credencial) {
   let gatilho = false;
   let saiu = false;
   for (let i = 0; i < LIMITES_LOGIN.sessao && !pronto; i++) {
-    const sessao = await seguro(() => driver.naPagina('estadoSessao', s, C.TEXTOS_SESSAO_INICIADA), '?');
+    const sessao = await seguro(() => driver.naPagina('estadoSessao', s, C.TEXTOS_SESSAO_INICIADA, C.sessaoDe(chave)), '?');
     if (sessao === 'com') {
       if (saiu) return falhada('logout', 'A sessão da conta anterior continua aberta');
       const r = await sair(driver, chave, fluxoPainel);
@@ -127,16 +127,27 @@ async function entrar(driver, chave, fluxoPainel, credencial) {
     await driver.esperar(200);
   }
 
-  const opcoes = { seletoresErro: C.seletoresErroDe(chave), textosSessao: C.TEXTOS_SESSAO_INICIADA };
+  const opcoes = { seletoresErro: C.seletoresErroDe(chave), textosSessao: C.TEXTOS_SESSAO_INICIADA, seletoresSessao: C.sessaoDe(chave).com };
   let estado = null;
   let cliquesExtra = 0;
   let preenchimentosExtra = 0;
+  let validouEm = null;
   // Como a extensão: a verificação anti-robô costuma acabar sozinha em segundos, e o site só segue com outro clique em Entrar.
   for (let i = 0; i < LIMITES_LOGIN.entrar; i++) {
     await driver.esperar(500);
     estado = await seguro(() => driver.naPagina('estadoLogin', s, opcoes), null);
     if (estado?.estado === 'entrou') break;
     if (estado?.estado === 'falhou') return falhada('login', estado.erro || 'O site recusou o login');
+    // Na Betclic a sessão só aparece depois dos ecrãs da data de nascimento e do telemóvel; a data só vai para o site do casino.
+    if (estado?.estado === 'aguardar' && fluxo.posLogin && await seguro(doCasino, false)) {
+      const passo = await seguro(() => driver.naPagina('passosPosLogin', fluxo.posLogin, {
+        nascimento: credencial.nascimento ?? null, popups: fluxo.extraPopups, validado: validouEm != null
+      }), null);
+      if (passo === 'sem-nascimento') return falhada('login', 'A Betclic pede a data de nascimento e a conta não a tem');
+      if (passo === 'validou') validouEm = i;
+      // Um só clique em Validar por login; o ecrã ainda lá ~5 s depois é recusa.
+      if (passo === 'nascimento-pendente' && i - validouEm >= 10) return falhada('login', 'A Betclic não aceitou a data de nascimento');
+    }
     if (estado?.estado === 'aguardar' && estado.noFormulario && i >= 7 && (i - 7) % 8 === 0 && cliquesExtra < LIMITES_LOGIN.cliquesExtra) {
       // Nunca a meio da verificação: o clique recomeçava-a.
       if (await seguro(() => driver.naPagina('captchaPendente'), true)) continue;
