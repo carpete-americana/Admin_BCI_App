@@ -45,7 +45,8 @@ const ARGS = [
   '--disable-features=CalculateNativeWinOcclusion'
 ];
 const POSICAO = { x: -2400, y: -2400 };
-// Sem posição (browser visível) o Chrome abre onde quer, no ecrã.
+const POSICAO_VISIVEL = { x: 40, y: 40 };
+// Sem posição o Chrome restaurava a guardada no perfil, que era a de fora do ecrã.
 const argsDe = (perfil, pos = POSICAO) => [...ARGS, ...(pos ? [`--window-position=${pos.x},${pos.y}`] : []), `--user-data-dir=${perfil}`, 'about:blank'];
 
 /** Canto fora de todos os monitores: com um à esquerda ou acima do principal, -2400 caía num deles. */
@@ -107,6 +108,16 @@ const comLimite = (promessa, ms, motivo) => {
   return Promise.race([promessa, new Promise((_, rejeitar) => { t = setTimeout(() => rejeitar(new Error(motivo)), ms); })]).finally(() => clearTimeout(t));
 };
 
+/** Põe a janela à frente e fora de maximizada/minimizada; o Windows deixava-a atrás da app. */
+async function mostrarJanela(page) {
+  try {
+    const cdp = await page.createCDPSession();
+    const { windowId } = await cdp.send('Browser.getWindowForTarget');
+    await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal', left: POSICAO_VISIVEL.x, top: POSICAO_VISIVEL.y } });
+    await page.bringToFront?.();
+  } catch (e) { /* o browser abriu à mesma */ }
+}
+
 /** Só https nos documentos da página: um http é recusado antes de sair. */
 async function soHttps(page) {
   const cdp = await page.createCDPSession();
@@ -130,7 +141,7 @@ async function abrirBrowserReal(casino, deps, { hostsExtra = [] } = {}) {
 
   const lancar = puppeteer.launch({
     executablePath: escolhido.exe, headless: false, pipe: true, defaultViewport: null,
-    ignoreDefaultArgs: true, args: argsDe(perfil, visivel ? null : posicaoFora(deps.ecras?.())), timeout: ABRIR_MAX_MS
+    ignoreDefaultArgs: true, args: argsDe(perfil, visivel ? POSICAO_VISIVEL : posicaoFora(deps.ecras?.())), timeout: ABRIR_MAX_MS
   });
   let browser;
   try {
@@ -157,6 +168,7 @@ async function abrirBrowserReal(casino, deps, { hostsExtra = [] } = {}) {
     // Um perfil que restaura separadores da sessão anterior.
     for (const p of restantes) await p.close().catch(() => {});
     await soHttps(principal);
+    if (visivel) await mostrarJanela(principal);
 
     // A referência Multibanco do caixa abre numa janela nova; guardam-se as permitidas para o driver as ler.
     const filhas = [];

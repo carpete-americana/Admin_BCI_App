@@ -43,13 +43,12 @@ test('a janela fica fora de todos os monitores, também com um à esquerda ou ac
   assert.ok(argsDe('p', { x: -5280, y: -2850 }).includes('--window-position=-5280,-2850'));
 });
 
-test('com a preferência de mostrar a janela, o browser abre sem posição fora do ecrã', async () => {
-  assert.ok(!argsDe('p', null).some(a => a.startsWith('--window-position')));
-  for (const [visivel, esperado] of [[async () => true, false], [async () => false, true], [undefined, true]]) {
+test('com a preferência de mostrar a janela, o browser abre dentro do ecrã', async () => {
+  for (const [visivel, esperado] of [[async () => true, '--window-position=40,40'], [async () => false, '--window-position=-2400,-2400'], [undefined, '--window-position=-2400,-2400']]) {
     const f = puppeteerFalso();
     const pastaPerfis = fs.mkdtempSync(path.join(os.tmpdir(), 'bci-perfis-'));
     const r = await abrirBrowserReal('placard', { puppeteer: f.puppeteer, browser: { exe: 'x' }, pastaPerfis, visivel, esperar: async () => {} });
-    try { assert.equal(f.estado.lancado.args.some(a => a.startsWith('--window-position=')), esperado); }
+    try { assert.ok(f.estado.lancado.args.includes(esperado)); }
     finally { await r.fechar(); fs.rmSync(pastaPerfis, { recursive: true, force: true }); }
   }
 });
