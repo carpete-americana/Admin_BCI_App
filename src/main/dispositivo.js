@@ -133,13 +133,13 @@ function criarDispositivo(deps) {
 
   async function estado() {
     const s = await sessao();
-    const vazio = { disponivel: false, consentido: false, autostart: false, versaoConsentimento: null };
+    const vazio = { disponivel: false, consentido: false, autostart: false, browserVisivel: false, versaoConsentimento: null };
     if (!s) return vazio;
     const cfg = await configDoServidor();
     if (!cfg) return vazio;
     const reg = await ler(s.chave);
     const consentido = !!reg?.consentido && reg.versao === cfg.versaoConsentimento;
-    return { disponivel: cfg.ativo, consentido, autostart: consentido && reg.autostart !== false, versaoConsentimento: cfg.versaoConsentimento };
+    return { disponivel: cfg.ativo, consentido, autostart: consentido && reg.autostart !== false, browserVisivel: consentido && reg.browserVisivel === true, versaoConsentimento: cfg.versaoConsentimento };
   }
 
   async function aceitar() {
@@ -237,6 +237,21 @@ function criarDispositivo(deps) {
     await storage.setItem(s.chave, { ...reg, autostart: ligado });
     aplicarArranque(ligado);
     return { ok: true };
+  }
+
+  async function definirBrowserVisivel(visivel) {
+    const s = await sessao();
+    const reg = s && await ler(s.chave);
+    if (typeof visivel !== 'boolean' || !reg?.consentido) return { ok: false };
+    await storage.setItem(s.chave, { ...reg, browserVisivel: visivel });
+    return { ok: true };
+  }
+
+  /** Lido ao abrir o browser de cada conta, por isso a escolha vale logo para a seguinte. */
+  async function browserVisivel() {
+    const s = await sessao();
+    const reg = s && await ler(s.chave);
+    return !!reg?.consentido && reg.browserVisivel === true;
   }
 
   async function desligarLocal(s, reg) {
@@ -469,7 +484,7 @@ function criarDispositivo(deps) {
 
   // aguardarTarefa: para os testes e para o fecho da app esperarem pela tarefa em curso.
   return {
-    iniciar, parar, terminar, estado, aceitar, revogar, definirArranque, aoTerminarSessao, perguntarSeFaltar,
+    iniciar, parar, terminar, estado, aceitar, revogar, definirArranque, definirBrowserVisivel, browserVisivel, aoTerminarSessao, perguntarSeFaltar,
     aguardarTarefa: () => execucao || Promise.resolve(), ocupado: () => !!execucao,
     // Também entre contas de um pacote (pausa): reiniciar aí largava o resto do pacote.
     emTrabalho: () => !!execucao || estadoPc.pc === 'a-trabalhar' || estadoPc.pc === 'em-pausa'

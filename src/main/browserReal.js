@@ -45,7 +45,8 @@ const ARGS = [
   '--disable-features=CalculateNativeWinOcclusion'
 ];
 const POSICAO = { x: -2400, y: -2400 };
-const argsDe = (perfil, { x, y } = POSICAO) => [...ARGS, `--window-position=${x},${y}`, `--user-data-dir=${perfil}`, 'about:blank'];
+// Sem posição (browser visível) o Chrome abre onde quer, no ecrã.
+const argsDe = (perfil, pos = POSICAO) => [...ARGS, ...(pos ? [`--window-position=${pos.x},${pos.y}`] : []), `--user-data-dir=${perfil}`, 'about:blank'];
 
 /** Canto fora de todos os monitores: com um à esquerda ou acima do principal, -2400 caía num deles. */
 function posicaoFora(ecras) {
@@ -117,7 +118,7 @@ async function soHttps(page) {
 
 /**
  * Abre o browser do casino e devolve { driver, fechar() }, como criarJanela.
- * deps: { puppeteer, browser: { exe }, pastaPerfis, ecras?() }, com ecras() = screen.getAllDisplays(). Janelas novas só para os hostsExtra do caixa (e subdomínios); as outras fecham-se.
+ * deps: { puppeteer, browser: { exe }, pastaPerfis, ecras?(), visivel?() }, com ecras() = screen.getAllDisplays() e visivel() a preferência de mostrar a janela. Janelas novas só para os hostsExtra do caixa (e subdomínios); as outras fecham-se.
  */
 async function abrirBrowserReal(casino, deps, { hostsExtra = [] } = {}) {
   if (!/^[a-z0-9]{1,30}$/.test(String(casino))) throw new Error('casino inválido');
@@ -125,10 +126,11 @@ async function abrirBrowserReal(casino, deps, { hostsExtra = [] } = {}) {
   const esperar = deps.esperar || ((ms) => new Promise(r => setTimeout(r, ms)));
   const perfil = path.join(pastaPerfis, `${PREFIXO_PERFIL}${casino}`);
   prepararPerfil(perfil, deps);
+  const visivel = deps.visivel ? await deps.visivel().catch(() => false) : false;
 
   const lancar = puppeteer.launch({
     executablePath: escolhido.exe, headless: false, pipe: true, defaultViewport: null,
-    ignoreDefaultArgs: true, args: argsDe(perfil, posicaoFora(deps.ecras?.())), timeout: ABRIR_MAX_MS
+    ignoreDefaultArgs: true, args: argsDe(perfil, visivel ? null : posicaoFora(deps.ecras?.())), timeout: ABRIR_MAX_MS
   });
   let browser;
   try {

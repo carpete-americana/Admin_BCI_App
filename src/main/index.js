@@ -41,7 +41,7 @@ const dispositivo = criarDispositivo({
     criarJanela: async (casino, opcoes) => {
       const browser = encontrarBrowser();
       if (!browser) throw new Error('sem Chrome nem Edge');
-      return abrirBrowserReal(casino, { puppeteer, browser, pastaPerfis: particoes.userData, ecras: () => screen.getAllDisplays() }, opcoes);
+      return abrirBrowserReal(casino, { puppeteer, browser, pastaPerfis: particoes.userData, ecras: () => screen.getAllDisplays(), visivel: async () => dispositivo.browserVisivel() }, opcoes);
     },
     levantar: levantarDaConta,
     depositar: depositarDaConta
@@ -112,6 +112,7 @@ ipcMain.handle('dispositivo:estado', () => dispositivo.estado());
 ipcMain.handle('dispositivo:aceitar', () => dispositivo.aceitar());
 ipcMain.handle('dispositivo:revogar', () => dispositivo.revogar());
 ipcMain.handle('dispositivo:definirArranque', (e, ligado) => dispositivo.definirArranque(ligado === true));
+ipcMain.handle('dispositivo:definirBrowserVisivel', (e, visivel) => dispositivo.definirBrowserVisivel(visivel === true));
 ipcMain.handle('detach-page', window.handleDetachPage);
 
 ipcMain.handle('cache:clearBrowser', async (e) => {

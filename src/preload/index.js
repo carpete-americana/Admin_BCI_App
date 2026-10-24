@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
         aceitar: () => ipcRenderer.invoke('dispositivo:aceitar'),
         revogar: () => ipcRenderer.invoke('dispositivo:revogar'),
         definirArranque: (ligado) => ipcRenderer.invoke('dispositivo:definirArranque', ligado === true),
+        definirBrowserVisivel: (visivel) => ipcRenderer.invoke('dispositivo:definirBrowserVisivel', visivel === true),
     },
 
     downloadUpdate: () => ipcRenderer.send('download-update'),

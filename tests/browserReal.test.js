@@ -43,6 +43,17 @@ test('a janela fica fora de todos os monitores, também com um à esquerda ou ac
   assert.ok(argsDe('p', { x: -5280, y: -2850 }).includes('--window-position=-5280,-2850'));
 });
 
+test('com a preferência de mostrar a janela, o browser abre sem posição fora do ecrã', async () => {
+  assert.ok(!argsDe('p', null).some(a => a.startsWith('--window-position')));
+  for (const [visivel, esperado] of [[async () => true, false], [async () => false, true], [undefined, true]]) {
+    const f = puppeteerFalso();
+    const pastaPerfis = fs.mkdtempSync(path.join(os.tmpdir(), 'bci-perfis-'));
+    const r = await abrirBrowserReal('placard', { puppeteer: f.puppeteer, browser: { exe: 'x' }, pastaPerfis, visivel, esperar: async () => {} });
+    try { assert.equal(f.estado.lancado.args.some(a => a.startsWith('--window-position=')), esperado); }
+    finally { await r.fechar(); fs.rmSync(pastaPerfis, { recursive: true, force: true }); }
+  }
+});
+
 test('hostPermitido: o host ou um subdomínio, só https', () => {
   const hosts = ['safecharge.com'];
   assert.ok(hostPermitido('https://cdn.safecharge.com/x', hosts));

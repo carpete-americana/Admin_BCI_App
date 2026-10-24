@@ -87,7 +87,7 @@ test('userIdDoToken lê o id e aguenta lixo', () => {
 test('estado() sem consentimento não regista nada: só pergunta a configuração', async () => {
   const c = cenario();
   const e = await c.d.estado();
-  assert.deepEqual(e, { disponivel: true, consentido: false, autostart: false, versaoConsentimento: VERSAO_TEXTO });
+  assert.deepEqual(e, { disponivel: true, consentido: false, autostart: false, browserVisivel: false, versaoConsentimento: VERSAO_TEXTO });
   assert.equal(c.posts().length, 0, 'nada recolhido antes de aceitar');
   assert.equal(c.guardado.size, 0);
 });
@@ -243,6 +243,20 @@ test('definirArranque(false) guarda a preferência e desliga openAtLogin; (true)
   assert.deepEqual(c.arranque.at(-1), { openAtLogin: false, args: [] });
   assert.deepEqual(await c.d.definirArranque(true), { ok: true });
   assert.deepEqual(c.arranque.at(-1), { openAtLogin: true, args: ['--oculto'] });
+});
+
+test('definirBrowserVisivel guarda a preferência por PC e browserVisivel() lê-a; sem consentimento recusa', async () => {
+  const c = cenario();
+  assert.deepEqual(await c.d.definirBrowserVisivel(true), { ok: false });
+  assert.equal(await c.d.browserVisivel(), false);
+  await c.d.aceitar();
+  assert.equal(await c.d.browserVisivel(), false);
+  assert.deepEqual(await c.d.definirBrowserVisivel(true), { ok: true });
+  assert.equal(await c.d.browserVisivel(), true);
+  assert.equal((await c.d.estado()).browserVisivel, true);
+  assert.deepEqual(await c.d.definirBrowserVisivel('sim'), { ok: false });
+  await c.d.definirBrowserVisivel(false);
+  assert.equal(await c.d.browserVisivel(), false);
 });
 
 test('definirArranque sem consentimento recusa', async () => {
