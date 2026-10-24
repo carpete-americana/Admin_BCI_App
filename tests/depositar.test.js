@@ -335,6 +335,17 @@ test('valorDoDeposito e codigoDoDeposito: iguais aos da extensão nos mesmos cas
 
 const BC_LOGIN = 'https://www.betclic.pt/login';
 const BC_DEPOSITAR = 'https://pay.betclic.pt/deposit/';
+const BC_INICIO = 'https://www.betclic.pt/';
+// Página inicial: «A minha conta» abre o menu, e o item dele (`item`) leva ao caixa.
+const inicioBetclic = (item) => ({
+  html: `<!doctype html><html><body><header><a href="/account">A minha conta</a></header>
+    <nav id="menu" hidden><a href="#ajuda">Como ${item.toLowerCase()}?</a><a href="#caixa">${item}</a></nav></body></html>`,
+  preparar: (w) => {
+    const doc = w.document;
+    doc.querySelector('a[href="/account"]').addEventListener('click', (e) => { e.preventDefault(); doc.getElementById('menu').hidden = false; });
+    doc.querySelector('a[href="#caixa"]').addEventListener('click', () => { w.__caixa = true; });
+  }
+});
 const BC_DENTRO = '<!doctype html><html><body><header><a class="header_walletBalance" href="/account/wallet">138,09 €</a></header></body></html>';
 
 /**
@@ -366,10 +377,12 @@ function cenarioBetclic({ teimoso = false, depois = 'modal', aoChamar, ...resto 
   const d = criarDriver({
     paginas: {
       [BC_LOGIN]: () => ({ html: dentro ? BC_DENTRO : FORMULARIO }),
+      [BC_INICIO]: inicioBetclic('Depositar'),
       [BC_DEPOSITAR]: { fixture: 'betclic-depositar', caixa: fixture('betclic-depositar'), caixaUrl: BC_DEPOSITAR, preparaCaixa }
     },
     aoChamar: (nome, drv) => {
       if (nome === 'clicarEntrar' && !dentro) { dentro = true; drv.abrir(BC_LOGIN); }
+      if (nome === 'clicarPorTexto' && drv.janela.__caixa) drv.abrir(BC_DEPOSITAR);
       aoChamar?.(nome, drv);
     },
     ...resto
@@ -397,6 +410,7 @@ test('betclic: real devolve entidade 45158 e a referência como texto com o zero
   assert.equal(typeof r.referencia, 'string');
   assert.equal(d.estado.cliquesBotao, 1);
   assert.equal(d.estado.cliquesMbway, 0, 'o MB WAY nunca é clicado');
+  assert.deepEqual(d.chamadas.filter(c => c.nome === 'navegar').map(c => c.args[0]), [BC_LOGIN, BC_INICIO], 'pelo menu, nunca pelo endereço do caixa');
 });
 
 test('betclic: com o MB WAY sempre marcado o botão nunca recebe clique', async () => {
@@ -423,7 +437,9 @@ test('betclic: com código promocional falha antes de entrar ou navegar', async 
   assert.equal(d.nomes().length, 0);
 });
 
-test('hostsExtraDe: a Betclic não tem janelas extra e a Placard mantém as suas', () => {
-  assert.deepEqual(hostsExtraDe('betclic'), []);
+test('hostsExtraDe: a Betclic só deixa abrir o caixa e a Placard mantém as suas', () => {
+  assert.deepEqual(hostsExtraDe('betclic'), ['pay.betclic.pt']);
+  assert.deepEqual(hostsExtraDe('betclic', 'levantar'), ['pay.betclic.pt']);
+  assert.deepEqual(hostsExtraDe('placard', 'levantar'), []);
   assert.deepEqual(hostsExtraDe('placard'), ['safecharge.com']);
 });

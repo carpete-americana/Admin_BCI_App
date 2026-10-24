@@ -6,7 +6,7 @@
  */
 
 const C = require('./vendor/casinos.js');
-const { entrar, seguro, falhada, verificar } = require('./sessaoCasino');
+const { entrar, abrirCaixa, seguro, falhada, verificar } = require('./sessaoCasino');
 
 const LIMITES = { preparar: 60, codigo: 40, validarCodigo: 12, resultado: 90 };
 
@@ -23,13 +23,15 @@ function codigoDoDeposito(parametros) {
   return String(parametros?.codigo ?? '').trim().slice(0, 60);
 }
 
-/** Onde o caixa pode abrir a janela da referência: o domínio do caixa (e subdomínios) e os hostsExtra. */
-function hostsExtraDe(casino) {
-  const cfg = C.CASINOS[casino]?.depositar;
-  // Sem hostsExtra a referência vem no próprio caixa (Betclic): não há janela noutro domínio para autorizar.
+/** Onde o caixa pode abrir uma janela nova (a referência, ou o próprio caixa vindo do menu): o domínio do caixa (e subdomínios) e os hostsExtra. */
+function hostsExtraDe(casino, tipo = 'depositar') {
+  const cfg = C.CASINOS[casino]?.[tipo];
+  // Sem hostsExtra tudo corre na janela da conta: não há janela noutro domínio para autorizar.
   if (!cfg?.hostsExtra?.length) return [];
   // secure.safecharge.com → safecharge.com: o caixa abre review.do e a referência vem noutro subdomínio (cdn).
-  const dominio = cfg?.caixaHost?.split('.').length > 2 ? cfg.caixaHost.split('.').slice(1).join('.') : cfg?.caixaHost;
+  // Um caixa no domínio do próprio casino (pay.betclic.pt) fica como está, para não abrir o site inteiro.
+  const doCasino = (C.CASINOS[casino].dominios || []).some(d => cfg.caixaHost === d || cfg.caixaHost?.endsWith(`.${d}`));
+  const dominio = !doCasino && cfg?.caixaHost?.split('.').length > 2 ? cfg.caixaHost.split('.').slice(1).join('.') : cfg?.caixaHost;
   const hosts = [dominio, ...(cfg?.hostsExtra || [])].filter(Boolean);
   return [...new Set(hosts)].filter((h, _i, todos) => !todos.some(o => o !== h && h.endsWith(`.${o}`)));
 }
@@ -65,7 +67,8 @@ async function depositarDaConta(driver, { casino, fluxo, credencial, parametros,
 
     if (parado()) return falhada('parado', PARADO);
     await passo('a-abrir');
-    await driver.navegar(cfg.url);
+    const semCaixa = await abrirCaixa(driver, casino, cfg);
+    if (semCaixa) return semCaixa;
 
     if (parado()) return falhada('parado', PARADO, extra);
     await passo('a-preencher', extra);

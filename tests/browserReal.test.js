@@ -213,6 +213,21 @@ test('naCaixa corre só nos frames do host do caixa e lança se nenhum respondeu
   fs.rmSync(a.pastaPerfis, { recursive: true, force: true });
 });
 
+test('naCaixa também procura o caixa numa janela nova que ficou (o da Betclic vindo do menu)', async () => {
+  const f = puppeteerFalso();
+  const frame = (url, r) => ({ url: () => url, evaluate: async () => r });
+  f.principal.frames = () => [frame('https://www.betclic.pt/', 'principal')];
+  const a = await abrir(f, { hostsExtra: ['pay.betclic.pt'] });
+  const cfg = { caixaHost: 'pay.betclic.pt' };
+  assert.equal(await a.driver.naCaixa('caixaPronto', cfg), null);
+  const nova = await f.abrirFilha('https://pay.betclic.pt/withdraw/');
+  nova.frames = () => [frame('https://pay.betclic.pt/withdraw/', true)];
+  assert.equal(await a.driver.naCaixa('caixaPronto', cfg), true);
+  await nova.close();
+  assert.equal(await a.driver.naCaixa('caixaPronto', cfg), null);
+  fs.rmSync(a.pastaPerfis, { recursive: true, force: true });
+});
+
 test('janelas novas: só hostsExtra ficam (e lêem-se); as outras fecham-se, também as que ficam em branco', async () => {
   const f = puppeteerFalso();
   const a = await abrir(f, { hostsExtra: ['safecharge.com'] });

@@ -7,7 +7,7 @@
 
 const path = require('node:path');
 const C = require('./vendor/casinos.js');
-const { entrar, seguro, falhada, verificar } = require('./sessaoCasino');
+const { entrar, abrirCaixa, seguro, falhada, verificar } = require('./sessaoCasino');
 
 const FICHEIRO_PAGINA = path.join(__dirname, 'vendor', 'pagina.js');
 
@@ -77,11 +77,14 @@ async function levantarDaConta(driver, { casino, fluxo, credencial, parametros, 
 
     if (parado()) return falhada('parado', PARADO);
     await passo('a-abrir');
-    await driver.navegar(cfg.url);
+    const semCaixa = await abrirCaixa(driver, casino, cfg);
+    if (semCaixa) return semCaixa;
 
     await passo('a-ler-saldo');
     for (let i = 0; i < LIMITES.saldo && est.saldo == null; i++) {
-      est.saldo = await seguro(() => driver.naPagina('lerSaldo', cfg.saldo), null) ?? undefined;
+      // Na Placard o saldo está na página; na Betclic no caixa, que pode ter aberto noutra janela.
+      est.saldo = await seguro(() => driver.naPagina('lerSaldo', cfg.saldo), null)
+        ?? await seguro(() => driver.naCaixa('lerSaldo', cfg.saldo), null) ?? undefined;
       if (est.saldo == null) await driver.esperar(250);
     }
     if (est.saldo == null) return falhada('saldo', 'Não foi possível ler o saldo');

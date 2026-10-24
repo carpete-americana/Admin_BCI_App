@@ -351,6 +351,11 @@
   // Corre em todos os frames; só o do caixa responde, os outros devolvem null.
   const noCaixa = (cfg) => location.hostname === cfg.caixaHost && document.querySelector(cfg.montante);
 
+  // true quando o campo do montante já está no frame do caixa; null nos outros frames.
+  function caixaPronto(cfg) {
+    return location.hostname === cfg.caixaHost && [].concat(cfg.montante || []).some(s => document.querySelector(s)) ? true : null;
+  }
+
   // ok:false não é definitivo: o caixa valida o montante e redesenha o formulário depois de escolher o SEPA, e o motor volta a chamar.
   function prepararLevantamento(cfg, valor) {
     const montante = noCaixa(cfg);
@@ -686,7 +691,7 @@
   }
 
   globalThis.__bciPagina = {
-    abrirDetalhesPessoais, lerDetalhesPessoais, lerSaldo, prepararLevantamento, confirmarLevantamento, resultadoLevantamento, fecharResultadoLevantamento, botaoDoCaixa,
+    abrirDetalhesPessoais, lerDetalhesPessoais, lerSaldo, caixaPronto, prepararLevantamento, confirmarLevantamento, resultadoLevantamento, fecharResultadoLevantamento, botaoDoCaixa,
     prepararDeposito, confirmarDeposito, aplicarCodigo, erroDoCodigo, estadoDoCodigo, lerReferenciaMB, extrairReferenciaMB, validadeDeHoras, resultadoDeposito,
     isVisible, vistoPeloUtilizador, encontrarCampo, usernamePerto, preencher, clicarPorTexto, clicarEntrar,
     camposProntos, estadoLogin, estadoSessao, recusarCookies, fecharPopups, passosPosLogin, fecharAvisoDeSaida, captchaPendente, passoLogout, abrirMenuConta, clicarEscondidoPorTexto

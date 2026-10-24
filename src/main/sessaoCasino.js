@@ -5,6 +5,7 @@
 const C = require('./vendor/casinos.js');
 
 const LIMITES_LOGIN = { sessao: 20, entrar: 60, popups: 15, cliquesExtra: 4 };
+const LIMITES_CAIXA = { menu: 20, item: 30, caixa: 60 };
 
 // As mensagens são sempre as nossas: o texto de uma exceção do driver pode trazer os argumentos, password incluída.
 const falhada = (fase, motivo, extra) => ({ estado: 'falhada', fase, motivo, ...extra });
@@ -189,4 +190,44 @@ async function entrar(driver, chave, fluxoPainel, credencial) {
   return null;
 }
 
-module.exports = { entrar, sair, seguro, falhada, verificar, recusarCookies, LIMITES_LOGIN };
+// Espera ao acaso entre passos, como uma pessoa.
+const pausa = (driver, min, max) => driver.esperar(Math.round(min + Math.random() * (max - min)));
+
+/**
+ * Leva ao caixa: pelo endereço dele ou, com `cfg.viaMenu`, pela página inicial e pelo menu da conta.
+ * null com o campo do montante à vista (na página ou numa janela nova); falhada se não chegou lá.
+ */
+async function abrirCaixa(driver, chave, cfg) {
+  if (!cfg.viaMenu) {
+    await driver.navegar(cfg.url);
+    return null;
+  }
+  const { conta, textos } = cfg.viaMenu;
+  await driver.navegar(cfg.inicio);
+  await pausa(driver, 1500, 4000);
+
+  let abriu = false;
+  for (let i = 0; i < LIMITES_CAIXA.menu && !abriu; i++) {
+    await recusarCookies(driver, chave);
+    abriu = await seguro(() => driver.naPagina('abrirMenuConta', conta, []), false);
+    if (!abriu) await driver.esperar(250);
+  }
+  if (!abriu) return falhada('caixa', 'Não encontrei o menu da conta');
+  await pausa(driver, 800, 2500);
+
+  // Exato e só o que se vê: «Levantar» solto apanhava ajudas e promoções.
+  let clicou = false;
+  for (let i = 0; i < LIMITES_CAIXA.item && !clicou; i++) {
+    clicou = await seguro(() => driver.naPagina('clicarPorTexto', textos, { exato: true, permissivo: false }), false);
+    if (!clicou) await driver.esperar(250);
+  }
+  if (!clicou) return falhada('caixa', `Não encontrei «${textos[0]}» no menu da conta`);
+
+  for (let i = 0; i < LIMITES_CAIXA.caixa; i++) {
+    await pausa(driver, 400, 700);
+    if (await seguro(() => driver.naCaixa('caixaPronto', cfg), null)) return null;
+  }
+  return falhada('caixa', 'O caixa não abriu');
+}
+
+module.exports = { entrar, sair, abrirCaixa, seguro, falhada, verificar, recusarCookies, LIMITES_LOGIN };

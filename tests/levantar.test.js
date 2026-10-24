@@ -273,13 +273,24 @@ const { fixture } = require('./ajuda/paginaJsdom');
 
 const BC_LOGIN = 'https://www.betclic.pt/login';
 const BC_LEVANTAR = 'https://pay.betclic.pt/withdraw/';
+const BC_INICIO = 'https://www.betclic.pt/';
+// Página inicial: «A minha conta» abre o menu, e o item dele (`item`) leva ao caixa.
+const inicioBetclic = (item) => ({
+  html: `<!doctype html><html><body><header><a href="/account">A minha conta</a></header>
+    <nav id="menu" hidden><a href="#ajuda">Como ${item.toLowerCase()}?</a><a href="#caixa">${item}</a></nav></body></html>`,
+  preparar: (w) => {
+    const doc = w.document;
+    doc.querySelector('a[href="/account"]').addEventListener('click', (e) => { e.preventDefault(); doc.getElementById('menu').hidden = false; });
+    doc.querySelector('a[href="#caixa"]').addEventListener('click', () => { w.__caixa = true; });
+  }
+});
 const BC_FORMULARIO = `<!doctype html><html><body><form>
   <input name="username"><input name="password" type="password">
   <button type="submit">Entrar</button></form></body></html>`;
 const BC_DENTRO = '<!doctype html><html><body><header><a class="header_walletBalance" href="/account/wallet">138,09 €</a></header></body></html>';
 
 // resposta: o que o site mostra depois de Levantar (null: nada).
-function cenarioBetclic({ resposta = 'Pedido confirmado', aoChamar, ...resto } = {}) {
+function cenarioBetclic({ resposta = 'Pedido confirmado', item = 'Levantar', aoChamar, ...resto } = {}) {
   let dentro = false;
   const preparaCaixa = (w) => {
     const d = w.document;
@@ -291,16 +302,37 @@ function cenarioBetclic({ resposta = 'Pedido confirmado', aoChamar, ...resto } =
   return criarDriver({
     paginas: {
       [BC_LOGIN]: () => ({ html: dentro ? BC_DENTRO : BC_FORMULARIO }),
+      [BC_INICIO]: inicioBetclic(item),
       [BC_LEVANTAR]: { fixture: 'betclic-levantar', caixa: fixture('betclic-levantar'), caixaUrl: BC_LEVANTAR, preparaCaixa }
     },
     aoChamar: (nome, d) => {
       if (nome === 'clicarEntrar' && !dentro) { dentro = true; d.abrir(BC_LOGIN); }
+      if (nome === 'clicarPorTexto' && d.janela.__caixa) d.abrir(BC_LEVANTAR);
       aoChamar?.(nome, d);
     },
     ...resto
   });
 }
 const pedidoBetclic = (extra = {}) => pedido({ casino: 'betclic', ...extra });
+const navegacoes = (d) => d.chamadas.filter(c => c.nome === 'navegar').map(c => c.args[0]);
+
+test('betclic: chega ao caixa pela página inicial e pelo menu da conta, nunca pelo endereço', async () => {
+  const d = cenarioBetclic();
+  const r = await levantarDaConta(d, pedidoBetclic({ ensaio: true }));
+  assert.equal(r.estado, 'ensaio');
+  assert.deepEqual(navegacoes(d), [BC_LOGIN, BC_INICIO]);
+  const n = d.nomes();
+  assert.ok(n.indexOf('abrirMenuConta') < n.indexOf('clicarPorTexto'));
+  assert.ok(d.esperas > 2, 'espera entre passos');
+});
+
+test('betclic: sem o item no menu falha antes do caixa', async () => {
+  const d = cenarioBetclic({ item: 'Levantamentos' });
+  const r = await levantarDaConta(d, pedidoBetclic());
+  assert.deepEqual([r.estado, r.fase, r.motivo], ['falhada', 'caixa', 'Não encontrei «levantar» no menu da conta']);
+  assert.ok(!navegacoes(d).includes(BC_LEVANTAR));
+  assert.ok(!d.nomes().includes('prepararLevantamento'));
+});
 const fechos = (d) => d.nomes().filter(n => n === 'fecharResultadoLevantamento').length;
 
 test('betclic: o ensaio pára antes de Levantar', async () => {

@@ -83,7 +83,7 @@ function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, sair =
     let r;
     let acabou = false;
     try {
-      janela = await criarJanela(casino, { hostsExtra: tipo === 'depositar' ? hostsExtraDe(casino) : [] });
+      janela = await criarJanela(casino, { hostsExtra: hostsExtraDe(casino, tipo) });
       const limite = new Promise((resolve) => {
         temporizador = setTimeoutFn(() => resolve({ estado: 'verificar', fase: 'tempo', motivo: 'Passou o tempo máximo — vê no casino se ficou feito' }), TEMPO_MAX_REAL_MS);
       });

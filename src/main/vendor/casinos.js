@@ -90,6 +90,9 @@
         inicio: 'https://www.betclic.pt/',
         url: 'https://pay.betclic.pt/withdraw/',
         caixaHost: 'pay.betclic.pt',
+        // O salto direto para o caixa era barrado às vezes: as apps entram pela página inicial e pelo menu da conta.
+        viaMenu: { conta: ['a[href="/account"]'], textos: ['levantar'] },
+        hostsExtra: ['pay.betclic.pt'],
         montante: '[data-qa="withdraw-amount-input-field"]',
         saldo: '[data-qa="withdraw-remaining-amount-limits"]',
         metodo: '[data-qa="payment-mean-banktransfer-wrapper"]',
@@ -111,6 +114,8 @@
         inicio: 'https://www.betclic.pt/',
         url: 'https://pay.betclic.pt/deposit/',
         caixaHost: 'pay.betclic.pt',
+        viaMenu: { conta: ['a[href="/account"]'], textos: ['depositar'] },
+        hostsExtra: ['pay.betclic.pt'],
         montante: ['[data-qa="deposit-amount-input-field"]'],
         metodo: ['[data-qa="payment-mean-multibanco-wrapper"]'],
         metodoExato: true,

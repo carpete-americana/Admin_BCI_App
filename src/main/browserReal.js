@@ -227,11 +227,12 @@ async function abrirBrowserReal(casino, deps, { hostsExtra = [] } = {}) {
       naPagina(nome, ...args) {
         return principal.mainFrame().evaluate(codigoDe(nome, args));
       },
-      // O caixa é um iframe de outra origem: corre nos frames do host dele e fica a primeira resposta.
+      // O caixa é um iframe de outra origem, ou uma janela nova vinda do menu: corre nos frames do host dele e fica a primeira resposta.
       // Nenhum respondeu e algum rebentou: lança, porque depois de Levantar o clique pode ter ido (verificar, não falhada).
       async naCaixa(nome, ...args) {
         const host = args[0]?.caixaHost;
-        const frames = principal.frames().filter((f) => {
+        const todos = [principal, ...filhas.filter(f => !f.isClosed())].flatMap(p => p.frames());
+        const frames = todos.filter((f) => {
           if (!host) return true;
           try { return new URL(f.url()).hostname === host; } catch (e) { return false; }
         });
