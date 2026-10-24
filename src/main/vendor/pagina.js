@@ -143,10 +143,30 @@
 
   const algumVisivel = (seletores) => seletores.some(s => [...document.querySelectorAll(s)].some(vistoPeloUtilizador));
 
+  // Erros num modal sem classe de erro (Betclic): procura-se a frase no texto visível da página.
+  function textoDeErroVisivel(textos) {
+    if (!textos?.length) return null;
+    // innerText ignora o texto escondido; o jsdom dos testes não o tem.
+    const pagina = semAcentos(document.body?.innerText ?? document.body?.textContent ?? '');
+    return textos.some(t => pagina.includes(semAcentos(t))) ? 'O site recusou o e-mail ou a palavra-passe' : null;
+  }
+
+  // Recusa o banner de cookies (a opção mais privada): por cima do formulário, o clique em Entrar não chegava ao site.
+  function recusarCookies(cfg) {
+    let caixa = null;
+    try { caixa = cfg?.contentor && document.querySelector(cfg.contentor); } catch (e) { return false; }
+    if (!caixa) return false;
+    const alvos = (cfg.textos || []).map(semAcentos);
+    for (const el of caixa.querySelectorAll('button, a, [role="button"]')) {
+      if (alvos.includes(semAcentos(compacto(el.textContent))) && vistoPeloUtilizador(el)) { el.click(); return true; }
+    }
+    return false;
+  }
+
   // Só falha com uma mensagem de erro do site; sem ela, e sem sinal de sessão, espera (verificação anti-robô, carregamento).
-  function estadoLogin(seletores, { seletoresErro = [], textosSessao = [], seletoresSessao = [] } = {}) {
+  function estadoLogin(seletores, { seletoresErro = [], textosSessao = [], seletoresSessao = [], textosErro = [] } = {}) {
     const noFormulario = !!(encontrarCampo(seletores.username) && encontrarCampo(seletores.password));
-    const erro = erroVisivel(seletoresErro);
+    const erro = erroVisivel(seletoresErro) || textoDeErroVisivel(textosErro);
     if (erro) return { estado: 'falhou', erro, noFormulario };
     if (algumVisivel(seletoresSessao) || temTextoEmBotao(textosSessao)) return { estado: 'entrou', erro: null, noFormulario };
     return { estado: 'aguardar', erro: null, noFormulario };
@@ -669,6 +689,6 @@
     abrirDetalhesPessoais, lerDetalhesPessoais, lerSaldo, prepararLevantamento, confirmarLevantamento, resultadoLevantamento, fecharResultadoLevantamento, botaoDoCaixa,
     prepararDeposito, confirmarDeposito, aplicarCodigo, erroDoCodigo, estadoDoCodigo, lerReferenciaMB, extrairReferenciaMB, validadeDeHoras, resultadoDeposito,
     isVisible, vistoPeloUtilizador, encontrarCampo, usernamePerto, preencher, clicarPorTexto, clicarEntrar,
-    camposProntos, estadoLogin, estadoSessao, fecharPopups, passosPosLogin, fecharAvisoDeSaida, captchaPendente, passoLogout, abrirMenuConta, clicarEscondidoPorTexto
+    camposProntos, estadoLogin, estadoSessao, recusarCookies, fecharPopups, passosPosLogin, fecharAvisoDeSaida, captchaPendente, passoLogout, abrirMenuConta, clicarEscondidoPorTexto
   };
 })();

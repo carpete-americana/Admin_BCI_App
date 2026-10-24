@@ -25,6 +25,7 @@ async function sair(driver, chave, fluxoPainel) {
   const s = C.seletoresDe(chave);
   const fluxo = fluxoDe(chave, fluxoPainel);
   const sessao = () => seguro(() => driver.naPagina('estadoSessao', s, C.TEXTOS_SESSAO_INICIADA, C.sessaoDe(chave)), '?');
+  const cookies = () => recusarCookies(driver, chave);
   const esperarSaida = async (tentativas) => {
     for (let i = 0; i < tentativas; i++) {
       await seguro(() => driver.naPagina('fecharAvisoDeSaida'), false);
@@ -36,6 +37,7 @@ async function sair(driver, chave, fluxoPainel) {
   const clicarSair = async (plano) => {
     const textos = plano.logoutTexts?.length ? plano.logoutTexts : C.LOGOUT_GENERICO.logoutTexts;
     for (let i = 0; i < 24; i++) {
+      await cookies();
       if (await seguro(() => driver.naPagina('passoLogout', plano, 'logout'), false)) return true;
       if (i === 2 || i === 10) await seguro(() => driver.naPagina('abrirMenuConta', C.SELETORES_MENU_CONTA, C.TEXTOS_MENU_CONTA), false);
       if (i === 18 && await seguro(() => driver.naPagina('clicarEscondidoPorTexto', textos), false)) return true;
@@ -79,6 +81,11 @@ async function sair(driver, chave, fluxoPainel) {
   return falhada('logout', 'A sessão da conta anterior não terminou');
 }
 
+// O banner pode aparecer a qualquer momento (carrega depois da página): quem espera chama-o a cada volta.
+const recusarCookies = (driver, chave) => (C.CASINOS[chave]?.cookies
+  ? seguro(() => driver.naPagina('recusarCookies', C.CASINOS[chave].cookies), false)
+  : Promise.resolve(false));
+
 // O browser é do casino, não da conta: uma sessão aberta pode ser de outra conta e termina-se antes de entrar.
 async function entrar(driver, chave, fluxoPainel, credencial) {
   const cfg = C.CASINOS[chave];
@@ -93,6 +100,7 @@ async function entrar(driver, chave, fluxoPainel, credencial) {
   let gatilho = false;
   let saiu = false;
   for (let i = 0; i < LIMITES_LOGIN.sessao && !pronto; i++) {
+    await recusarCookies(driver, chave);
     const sessao = await seguro(() => driver.naPagina('estadoSessao', s, C.TEXTOS_SESSAO_INICIADA, C.sessaoDe(chave)), '?');
     if (sessao === 'com') {
       if (saiu) return falhada('logout', 'A sessão da conta anterior continua aberta');
@@ -115,6 +123,7 @@ async function entrar(driver, chave, fluxoPainel, credencial) {
   if (!pronto) return falhada('login', 'A página de login não abriu');
 
   await seguro(() => driver.naPagina('fecharAvisoDeSaida'), false);
+  await recusarCookies(driver, chave);
   if (!await doCasino()) return falhada('casino', 'O site mudou a meio do login');
   const feito = await driver.naPagina('preencherLogin', s, credencial.username, credencial.password);
   if (!feito?.username && !feito?.password) return falhada('login', 'Não foi possível preencher o login');
@@ -127,7 +136,7 @@ async function entrar(driver, chave, fluxoPainel, credencial) {
     await driver.esperar(200);
   }
 
-  const opcoes = { seletoresErro: C.seletoresErroDe(chave), textosSessao: C.TEXTOS_SESSAO_INICIADA, seletoresSessao: C.sessaoDe(chave).com };
+  const opcoes = { seletoresErro: C.seletoresErroDe(chave), textosSessao: C.TEXTOS_SESSAO_INICIADA, seletoresSessao: C.sessaoDe(chave).com, textosErro: cfg.textosErroLogin || [] };
   let estado = null;
   let cliquesExtra = 0;
   let preenchimentosExtra = 0;
@@ -135,6 +144,8 @@ async function entrar(driver, chave, fluxoPainel, credencial) {
   // Como a extensão: a verificação anti-robô costuma acabar sozinha em segundos, e o site só segue com outro clique em Entrar.
   for (let i = 0; i < LIMITES_LOGIN.entrar; i++) {
     await driver.esperar(500);
+    // Um banner que chegue depois do clique tapa o formulário: recusa-se e volta a clicar em Entrar.
+    if (await recusarCookies(driver, chave)) await seguro(() => driver.naPagina('clicarEntrar', botao), false);
     estado = await seguro(() => driver.naPagina('estadoLogin', s, opcoes), null);
     if (estado?.estado === 'entrou') break;
     if (estado?.estado === 'falhou') return falhada('login', estado.erro || 'O site recusou o login');
@@ -178,4 +189,4 @@ async function entrar(driver, chave, fluxoPainel, credencial) {
   return null;
 }
 
-module.exports = { entrar, sair, seguro, falhada, verificar, LIMITES_LOGIN };
+module.exports = { entrar, sair, seguro, falhada, verificar, recusarCookies, LIMITES_LOGIN };

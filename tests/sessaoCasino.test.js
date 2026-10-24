@@ -190,6 +190,59 @@ const semData = (valor) => {
 };
 const registados = ({ d, esperas }) => [esperas, d.chamadas.filter(c => c.nome === 'url' || c.nome === 'navegar')];
 
+// Banner de cookies do TrustCommander: enquanto está aberto, o Entrar não chega ao site.
+const BANNER_BETCLIC = '<div id="tc-privacy-wrapper"><button>Aceitar tudo</button><button id="recusar">Recusar tudo</button></div>';
+const INICIO_BETCLIC = `${BETCLIC}/ecra/inicio`;
+
+function comBanner({ desde = 'inicio' } = {}) {
+  const r = { recusado: false, aceite: false };
+  let janela = null;
+  const pôrBanner = (w) => {
+    w.document.body.insertAdjacentHTML('beforeend', BANNER_BETCLIC);
+    const banner = w.document.getElementById('tc-privacy-wrapper');
+    banner.querySelector('button').addEventListener('click', () => { r.aceite = true; });
+    w.document.getElementById('recusar').addEventListener('click', () => { r.recusado = true; banner.remove(); });
+  };
+  r.d = criarDriver({
+    paginas: {
+      [LOGIN_BETCLIC]: { html: FORM_BETCLIC, preparar: (w) => { janela = w; if (desde === 'inicio') pôrBanner(w); } },
+      [INICIO_BETCLIC]: { fixture: 'betclic-inicio' }
+    },
+    aoChamar: (nome, dr) => {
+      if (nome !== 'clicarEntrar') return;
+      if (r.recusado) return dr.abrir(INICIO_BETCLIC);
+      // Chega depois do primeiro clique, que se perde.
+      if (desde === 'clique' && !janela.document.getElementById('tc-privacy-wrapper')) pôrBanner(janela);
+    }
+  });
+  return r;
+}
+
+test('Betclic: banner de cookies por cima do login: recusa-o (nunca aceita) e entra', async () => {
+  const b = comBanner();
+  assert.equal(await entrar(b.d, 'betclic', null, CREDENCIAL), null);
+  assert.deepEqual([b.recusado, b.aceite], [true, false]);
+});
+
+test('Betclic: banner que chega depois do clique: recusa-o e volta a carregar em Entrar', async () => {
+  const b = comBanner({ desde: 'clique' });
+  assert.equal(await entrar(b.d, 'betclic', null, CREDENCIAL), null);
+  assert.deepEqual([b.recusado, b.aceite], [true, false]);
+  assert.ok(b.d.nomes().filter(n => n === 'clicarEntrar').length >= 2);
+});
+
+test('Betclic: credenciais erradas («Atenção!») falham logo, sem esperar o tempo todo', async () => {
+  const ATENCAO = '<div><h2>Atenção!</h2><p>Insere novamente o teu e-mail (ou nome de utilizador) e palavra-passe.</p></div>';
+  const d = criarDriver({
+    paginas: { [LOGIN_BETCLIC]: { html: FORM_BETCLIC }, [`${BETCLIC}/erro`]: { html: FORM_BETCLIC.replace('</body>', `${ATENCAO}</body>`) } },
+    aoChamar: (nome, dr) => { if (nome === 'clicarEntrar') dr.abrir(`${BETCLIC}/erro`); }
+  });
+  const r = await entrar(d, 'betclic', null, CREDENCIAL);
+  assert.deepEqual(r, { estado: 'falhada', fase: 'login', motivo: 'O site recusou o e-mail ou a palavra-passe' });
+  assert.ok(d.esperas < 10, `esperou ${d.esperas} vezes`);
+  assert.ok(!JSON.stringify(r).includes(SENHA));
+});
+
 test('Betclic: data de nascimento, telemóvel e casa: entra com a data escrita e Mais tarde', async () => {
   const b = betclic(['nascimento', 'telemovel', 'inicio']);
   assert.equal(await entrar(b.d, 'betclic', null, COM_NASCIMENTO), null);

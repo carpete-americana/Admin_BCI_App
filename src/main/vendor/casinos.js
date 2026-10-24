@@ -77,6 +77,10 @@
         confirmTexts: ['sim']
       },
       popups: [{ label: 'Confirmação de telefone', dismissTexts: ['mais tarde'], selector: 'button[data-qa="cancel_phone-confirmation_button"]' }],
+      // Banner do TrustCommander por cima do login; o perfil do browser das apps nunca o tinha respondido.
+      cookies: { contentor: '#tc-privacy-wrapper', textos: ['recusar tudo'] },
+      // Credenciais erradas: um modal «Atenção!» sem classe de erro.
+      textosErroLogin: ['insere novamente o teu e-mail'],
       sessao: {
         com: ['a.header_walletBalance', 'a[href="/account"]', '[data-qa="paymentUserTotalBalance"]'],
         sem: ['[data-qa="commonSignInButton"]']
