@@ -158,6 +158,8 @@ test('lança o browser instalado com o perfil do casino, em pipe e sem os argume
     assert.ok(o.args.includes(`--user-data-dir=${path.join(pastaPerfis, 'op-casa-placard')}`));
     assert.ok(fs.existsSync(path.join(pastaPerfis, 'op-casa-placard', 'Default', 'Preferences')));
     assert.ok(f.estado.cdp.some(([m, a]) => m === 'Browser.setDownloadBehavior' && a.behavior === 'deny'));
+    // O pedido de passkey da Betclic abria o diálogo do Windows por cima da janela.
+    assert.ok(f.estado.cdp.some(([m]) => m === 'WebAuthn.enable'));
     await fechar();
     await fechar();
     assert.equal(f.estado.fechou, 1);

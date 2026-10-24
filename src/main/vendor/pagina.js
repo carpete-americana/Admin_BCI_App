@@ -91,18 +91,27 @@
     return false;
   }
 
+  // Entrar por outro caminho: «Aceder com uma chave de acesso» abria o diálogo de passkey do Windows.
+  const OUTRO_ACESSO = /chave de acesso|passkey|google|apple|facebook/;
+
   // Percorre todos os elementos de cada seletor: na Betclic há um submit escondido antes do botão certo.
+  // O certo à vista mas desativado (o site ainda valida) espera: o recurso por texto apanhava outro botão.
   function clicarEntrar({ seletores, textos }) {
+    let desativado = false;
     for (const seletor of seletores || []) {
       let candidatos;
       try { candidatos = document.querySelectorAll(seletor); } catch (e) { continue; }
       for (const btn of candidatos) {
-        if (!btn.disabled && isVisible(btn)) { btn.click(); return true; }
+        if (!isVisible(btn)) continue;
+        if (btn.disabled) { desativado = true; continue; }
+        btn.click();
+        return true;
       }
     }
+    if (desativado) return false;
     const alvos = (textos || []).map(t => t.toLowerCase());
     for (const btn of document.querySelectorAll('button, input[type="submit"], a[role="button"], [role="button"]')) {
-      if (btn.disabled || !isVisible(btn)) continue;
+      if (btn.disabled || !isVisible(btn) || OUTRO_ACESSO.test(textoDe(btn))) continue;
       if (alvos.some(t => textoDe(btn).includes(t))) { btn.click(); return true; }
     }
     return false;

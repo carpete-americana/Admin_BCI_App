@@ -136,13 +136,17 @@ async function mostrarJanela(page) {
   } catch (e) { /* o browser abriu à mesma */ }
 }
 
-/** Só https nos documentos da página: um http é recusado antes de sair. */
-async function soHttps(page) {
+/**
+ * Só https nos documentos da página, e sem o diálogo de passkey do Windows: a Betclic pede uma passkey no login e o
+ * diálogo nativo tapava a janela. Com o WebAuthn virtual e sem autenticadores o pedido fica parado, sem diálogo.
+ */
+async function protegerPagina(page) {
   const cdp = await page.createCDPSession();
   cdp.on('Fetch.requestPaused', (e) => {
     cdp.send('Fetch.failRequest', { requestId: e.requestId, errorReason: 'BlockedByClient' }).catch(() => {});
   });
   await cdp.send('Fetch.enable', { patterns: [{ urlPattern: 'http://*', resourceType: 'Document' }] });
+  await cdp.send('WebAuthn.enable', { enableUI: false }).catch(() => {});
 }
 
 /**
@@ -186,7 +190,7 @@ async function abrirBrowserReal(casino, deps, { hostsExtra = [] } = {}) {
     // Um perfil que restaura separadores da sessão anterior.
     for (const p of restantes) await p.close().catch(() => {});
     const principal = visivel ? await janelaVisivel(browser, cdp, inicial) : inicial;
-    await soHttps(principal);
+    await protegerPagina(principal);
 
     // A referência Multibanco do caixa abre numa janela nova; guardam-se as permitidas para o driver as ler.
     const filhas = [];
@@ -201,7 +205,7 @@ async function abrirBrowserReal(casino, deps, { hostsExtra = [] } = {}) {
           if (i >= 10 || !['', 'about:blank'].includes(alvo.url())) { nova.close().catch(() => {}); return; }
           await esperar(300);
         }
-        await soHttps(nova).catch(() => {});
+        await protegerPagina(nova).catch(() => {});
         filhas.push(nova);
         nova.once('close', () => { const i = filhas.indexOf(nova); if (i >= 0) filhas.splice(i, 1); });
       } catch (e) {
