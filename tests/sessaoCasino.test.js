@@ -20,7 +20,7 @@ const ENTROU = `<!doctype html><html><body><header><button>Depositar</button></h
   <span class="cms-balance-withdrawable_balance">30.00 €</span></body></html>`;
 
 test('limites e construtores de resultado', async () => {
-  assert.deepEqual(LIMITES_LOGIN, { sessao: 20, entrar: 60, popups: 15, cliquesExtra: 4 });
+  assert.deepEqual(LIMITES_LOGIN, { sessao: 40, entrar: 60, popups: 15, cliquesExtra: 4 });
   assert.deepEqual(falhada('login', 'x', { a: 1 }), { estado: 'falhada', fase: 'login', motivo: 'x', a: 1 });
   assert.deepEqual(verificar('captcha', 'y'), { estado: 'verificar', fase: 'captcha', motivo: 'y' });
   assert.equal(await seguro(async () => { throw new Error('x'); }, 'omissao'), 'omissao');
@@ -217,6 +217,33 @@ function comBanner({ desde = 'inicio' } = {}) {
   });
   return r;
 }
+
+test('Betclic: só escreve depois da hidratação do Angular, que repõe os campos vazios', async () => {
+  const SSR = `<!doctype html><html><body><app-desktop ngh="0"><form>
+    <input name="username"><input name="password" type="password">
+    <button type="submit" disabled>Aceder</button></form></app-desktop></body></html>`;
+  let voltas = 0;
+  const d = criarDriver({
+    paginas: { [LOGIN_BETCLIC]: { html: SSR } },
+    aoChamar: (nome, dr) => {
+      const doc = dr.janela.document;
+      const raiz = doc.querySelector('[ngh]');
+      // A hidratação acaba passadas umas voltas e limpa o que lá estiver escrito.
+      if (raiz && ++voltas === 4) {
+        raiz.removeAttribute('ngh');
+        for (const i of doc.querySelectorAll('input')) i.value = '';
+        doc.querySelector('button').disabled = false;
+      }
+    }
+  });
+  await d.navegar(LOGIN_BETCLIC);
+  await entrar(d, 'betclic', null, CREDENCIAL);
+  const preencheu = d.chamadas.findIndex(c => c.nome === 'preencherLogin');
+  const hidratou = d.chamadas.findIndex(c => c.nome === 'paginaHidratada');
+  assert.ok(preencheu > hidratou && hidratou >= 0);
+  assert.equal(d.janela.document.querySelector('input[name="username"]').value, 'joao');
+  assert.equal(d.janela.document.querySelector('input[type="password"]').value, SENHA);
+});
 
 test('Betclic: banner de cookies por cima do login: recusa-o (nunca aceita) e entra', async () => {
   const b = comBanner();

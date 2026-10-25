@@ -121,6 +121,11 @@
     return !!(encontrarCampo(seletores.username) || encontrarCampo(seletores.password));
   }
 
+  // Angular com SSR (Betclic): os campos chegam no HTML do servidor e a hidratação repõe-nos vazios; acaba quando não sobra nenhum [ngh].
+  function paginaHidratada() {
+    return !document.querySelector('[ngh]');
+  }
+
   // «Obrigatório» fica de fora: aparece enquanto o site valida e não quer dizer que o login falhou.
   const PALAVRAS_ERRO = [
     'incorret', 'errad', 'inválid', 'invalid', 'incorrect', 'wrong', 'falhou', 'failed',
@@ -259,8 +264,10 @@
   const WIDGETS_CAPTCHA = 'iframe[src*="turnstile" i], iframe[src*="challenges.cloudflare" i], iframe[src*="recaptcha" i], iframe[src*="hcaptcha" i], iframe[src*="captcha" i]';
 
   // A verificação de humano deixa um token no formulário quando acaba; sem token ainda está a decorrer.
+  // Um hCaptcha/reCAPTCHA invisível (Betclic: contentor com 0 px) só desafia depois do envio: o token vazio dele não conta.
   function captchaPendente() {
-    const tokens = [...document.querySelectorAll(TOKENS_CAPTCHA)];
+    const tokens = [...document.querySelectorAll(TOKENS_CAPTCHA)]
+      .filter(t => t.name === 'cf-turnstile-response' || vistoPeloUtilizador(t.parentElement));
     if (tokens.length) return tokens.every(t => !String(t.value || '').trim());
     return [...document.querySelectorAll(WIDGETS_CAPTCHA)].some(vistoPeloUtilizador);
   }
@@ -703,6 +710,6 @@
     abrirDetalhesPessoais, lerDetalhesPessoais, lerSaldo, caixaPronto, prepararLevantamento, confirmarLevantamento, resultadoLevantamento, fecharResultadoLevantamento, botaoDoCaixa,
     prepararDeposito, confirmarDeposito, aplicarCodigo, erroDoCodigo, estadoDoCodigo, lerReferenciaMB, extrairReferenciaMB, validadeDeHoras, resultadoDeposito,
     isVisible, vistoPeloUtilizador, encontrarCampo, usernamePerto, preencher, clicarPorTexto, clicarEntrar,
-    camposProntos, estadoLogin, estadoSessao, recusarCookies, fecharPopups, passosPosLogin, fecharAvisoDeSaida, captchaPendente, passoLogout, abrirMenuConta, clicarEscondidoPorTexto
+    camposProntos, paginaHidratada, estadoLogin, estadoSessao, recusarCookies, fecharPopups, passosPosLogin, fecharAvisoDeSaida, captchaPendente, passoLogout, abrirMenuConta, clicarEscondidoPorTexto
   };
 })();

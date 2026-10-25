@@ -4,7 +4,7 @@
 
 const C = require('./vendor/casinos.js');
 
-const LIMITES_LOGIN = { sessao: 20, entrar: 60, popups: 15, cliquesExtra: 4 };
+const LIMITES_LOGIN = { sessao: 40, entrar: 60, popups: 15, cliquesExtra: 4 };
 const LIMITES_CAIXA = { menu: 20, item: 30, caixa: 60 };
 
 // As mensagens são sempre as nossas: o texto de uma exceção do driver pode trazer os argumentos, password incluída.
@@ -118,10 +118,12 @@ async function entrar(driver, chave, fluxoPainel, credencial) {
       if (!await doCasino()) return falhada('casino', 'A página aberta não é do casino da conta');
       continue;
     }
-    pronto = await seguro(() => driver.naPagina('camposProntos', s), false);
+    const campos = await seguro(() => driver.naPagina('camposProntos', s), false);
+    // Escrever antes da hidratação perdia-se: o Angular da Betclic repunha os campos vazios.
+    pronto = campos && await seguro(() => driver.naPagina('paginaHidratada'), false);
     if (pronto) break;
     // Alguns sites só criam os campos depois de clicar em Entrar.
-    if (sessao === 'sem' && !gatilho) {
+    if (!campos && sessao === 'sem' && !gatilho) {
       gatilho = true;
       await seguro(() => driver.naPagina('clicarPorTexto', fluxo.loginTriggerTexts || C.TEXTOS_GATILHO_LOGIN), false);
     }
@@ -135,8 +137,12 @@ async function entrar(driver, chave, fluxoPainel, credencial) {
   const feito = await driver.naPagina('preencherLogin', s, credencial.username, credencial.password);
   if (!feito?.username && !feito?.password) return falhada('login', 'Não foi possível preencher o login');
 
-  // O botão só fica ativo depois da validação do site.
+  // O botão só fica ativo depois da validação do site; um campo limpo pelo site entretanto volta a preencher-se.
   await driver.esperar(500);
+  if (await seguro(() => driver.naPagina('passwordVazia', s), false) && await doCasino()) {
+    await seguro(() => driver.naPagina('preencherLogin', s, credencial.username, credencial.password), null);
+    await driver.esperar(500);
+  }
   const botao = { seletores: C.SELETORES_BOTAO_ENTRAR, textos: C.TEXTOS_BOTAO_ENTRAR };
   for (let i = 0; i < 10; i++) {
     if (await seguro(() => driver.naPagina('clicarEntrar', botao), false)) break;
