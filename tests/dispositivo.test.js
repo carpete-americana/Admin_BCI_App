@@ -206,6 +206,8 @@ test('sem token (logout) não faz pedidos', async () => {
   const c = cenario();
   await c.d.aceitar();
   c.d.iniciar();
+  // O sinal do arranque acaba antes do logout.
+  for (let i = 0; i < 20; i++) await new Promise(r => setImmediate(r));
   c.sairDaSessao();
   c.chamadas.length = 0;
   await c.tique().fn();
@@ -745,6 +747,28 @@ const comPacote = (pacote, extra = {}) => ({
 });
 const contasSimuladas = (...ids) => ids.map(tarefaId => ({ tarefaId, simulada: true, parametros: {} }));
 const executorQueRegista = (feitas) => async (t, io) => { await io.iniciar(5); feitas.push(t.tarefaId); await io.concluir('feita', {}); };
+
+test('429 no sinal abranda para 60 s e o ritmo do servidor volta no sinal seguinte', async () => {
+  let resposta = { status: 429, corpo: {} };
+  const c = cenario({ rotas: { 'POST /users/me/devices/:id/sinal': () => resposta } });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  assert.equal(c.tique().ms, 60000);
+  resposta = { status: 200, corpo: { result: { data: { consentimentoValido: true, proximoSinalSeg: 10 } } } };
+  await c.tique().fn();
+  assert.equal(c.tique().ms, 10000);
+  c.d.parar();
+});
+
+test('dois sinais ao mesmo tempo (fecho e ciclo) fazem um só pedido', async () => {
+  const c = cenario();
+  await c.d.aceitar();
+  const antes = c.posts().filter(p => /sinal$/.test(p.caminho)).length;
+  c.d.iniciar();
+  await Promise.all([c.tique().fn(), c.d.terminar()]);
+  assert.equal(c.posts().filter(p => /sinal$/.test(p.caminho)).length - antes, 1, 'o do arranque, o do ciclo e o do fecho juntam-se');
+});
 
 test('o intervalo seguinte vem do servidor, limitado a [5, 300] s; sem resposta mantém o último', async () => {
   for (const [pedido, esperado] of [[10, 10], [1, 5], [9999, 300], [undefined, 120]]) {

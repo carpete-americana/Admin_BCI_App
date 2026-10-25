@@ -16,6 +16,8 @@ const SINAL_MS = 2 * 60 * 1000;
 // O servidor diz quando quer o sinal seguinte (proximoSinalSeg); limitado a isto.
 const SINAL_MIN_SEG = 5;
 const SINAL_MAX_SEG = 300;
+// Recusado por excesso (429): abranda, senão cada sinal recusado contava e prolongava o bloqueio.
+const SINAL_RECUO_SEG = 60;
 const TERMINAR_MAX_MS = 60 * 1000;
 const RAIZ = '/users/me/devices';
 // O servidor só entrega tarefas a quem declara saber fazê-las.
@@ -261,8 +263,15 @@ function criarDispositivo(deps) {
     aplicar(novo);
   }
 
+  // Um sinal de cada vez: o do fecho podia cruzar-se com o do ciclo.
+  let sinalEmCurso = null;
+  function sinal() {
+    sinalEmCurso ??= enviarSinal().finally(() => { sinalEmCurso = null; });
+    return sinalEmCurso;
+  }
+
   /** Um sinal: confirma ao servidor que este computador está ligado e aplica o que ele responder. Devolve o proximoSinalSeg pedido. */
-  async function sinal() {
+  async function enviarSinal() {
     try {
       const s = await sessao();
       if (!s) return;
@@ -282,6 +291,7 @@ function criarDispositivo(deps) {
       });
       if (r.status === 401 || r.status === 403) return suspender();
       if (r.status === 404) { await apagarBrowsers(); return desligarLocal(s, reg); }
+      if (r.status === 429) return SINAL_RECUO_SEG;
       if (r.status !== 200) return;
       const d = dadosDe(r);
       if (d?.consentimentoValido === false) {
