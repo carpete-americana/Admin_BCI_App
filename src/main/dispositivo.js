@@ -21,8 +21,8 @@ const SINAL_RECUO_SEG = 60;
 const TERMINAR_MAX_MS = 60 * 1000;
 const RAIZ = '/users/me/devices';
 // O servidor só entrega tarefas a quem declara saber fazê-las.
-const CAPACIDADES = ['tarefas-v1', 'pacotes-v1', 'levantar-v1', 'depositar-v1', 'betclic-v1'];
-const CAPACIDADES_REAIS = ['levantar-v1', 'depositar-v1', 'betclic-v1'];
+const CAPACIDADES = ['tarefas-v1', 'pacotes-v1', 'levantar-v1', 'depositar-v1', 'betclic-v1', 'freebets-v1'];
+const CAPACIDADES_REAIS = ['levantar-v1', 'depositar-v1', 'betclic-v1', 'freebets-v1'];
 const VISTAS_MAX = 50;
 const CONCLUIR_TENTATIVAS = 4;
 // O identificador da máquina só vai com o consentimento do texto que fala dele.

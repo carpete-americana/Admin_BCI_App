@@ -92,12 +92,13 @@ test('o progresso chega pela ordem do motor', async () => {
 test('cada estado do motor chega ao concluir só com os 4 últimos dígitos do IBAN', async () => {
   for (const estado of ['feita', 'ensaio', 'saltada', 'falhada', 'verificar']) {
     const { executar, io, registo } = montar({
-      motor: async () => ({ estado, saldo: 30, valor: 20, iban: 'PT50 0000 0000 0000 0000 0154', motivo: 'm', fase: 'caixa' })
+      motor: async () => ({ estado, saldo: 30, freebets: 5.5, valor: 20, iban: 'PT50 0000 0000 0000 0000 0154', motivo: 'm', fase: 'caixa' })
     });
     await executar(TAREFA, io);
     const c = concluido(registo);
     assert.equal(c.estado, estado);
     assert.equal(c.resultado.ibanFim, '0154');
+    assert.equal(c.resultado.freebets, 5.5);
     assert.ok(!JSON.stringify(c).includes('PT50'));
   }
 });

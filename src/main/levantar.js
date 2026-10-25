@@ -34,7 +34,7 @@ function correrNaPagina(nome, ...args) {
   return f(...args);
 }
 
-const LIMITES = { saldo: 40, preparar: 60, resultado: 60 };
+const LIMITES = { saldo: 40, preparar: 60, resultado: 60, freebets: 40 };
 
 /** Chave de casinos.js a partir do nome da conta («Placard» → placard); null se o nome não for exato. */
 function chaveDoNome(nome) {
@@ -45,8 +45,7 @@ function chaveDoNome(nome) {
 }
 
 /** «Deixar» leva os cêntimos; os outros modos euros inteiros. Devolve { valor } ou { saltar }. */
-function valorDoLevantamento(parametros, saldo) {
-  const p = parametros || {};
+function valorDoModo(p, saldo) {
   // Em cêntimos: 50.64 - 30 dá 20.640000000000001 em vírgula flutuante.
   const valor = p.modo === 'deixar'
     ? (Math.round(saldo * 100) - Math.round((Number(p.deixar) || 0) * 100)) / 100
@@ -57,15 +56,61 @@ function valorDoLevantamento(parametros, saldo) {
 }
 
 /**
+ * Com `parametros.freebets` = { deixar, seRealAcima, senao, senaoDeixar }: se o real passa de seRealAcima, ficam pelo menos
+ * `deixar` € entre real e freebets (que nunca se levantam); senão vale `senao` (saltar, normal, tudo ou deixar senaoDeixar reais).
+ */
+function valorDoLevantamento(parametros, saldo, freebets = 0) {
+  const p = parametros || {};
+  const r = p.freebets;
+  if (!r) return valorDoModo(p, saldo);
+  const lidas = `freebets ${freebets} €`;
+  if (!(saldo > r.seRealAcima)) {
+    if (r.senao === 'saltar') return { saltar: `Saldo real ${saldo} € não passa de ${r.seRealAcima} € (${lidas})` };
+    if (r.senao === 'tudo') return valorDoModo({ modo: 'deixar', deixar: 0, minimo: p.minimo }, saldo);
+    if (r.senao === 'deixar') return valorDoModo({ modo: 'deixar', deixar: r.senaoDeixar, minimo: p.minimo }, saldo);
+    return valorDoModo(p, saldo);
+  }
+  const base = valorDoModo(p, saldo);
+  if (base.saltar) return base;
+  const tecto = Math.max(0, Math.round(saldo * 100) - Math.max(0, Math.round(r.deixar * 100) - Math.round(freebets * 100)));
+  const valor = p.modo === 'deixar' ? Math.min(Math.round(base.valor * 100), tecto) / 100 : Math.min(base.valor, Math.floor(tecto / 100));
+  if (valor < (p.minimo || 1)) return { saltar: `Fica abaixo do mínimo para deixar ${r.deixar} € com as freebets (real ${saldo} €, ${lidas})` };
+  return { valor };
+}
+
+/** Freebets da página da conta; 0 quando a carteira aparece sem elas, null quando a carteira nunca aparece. */
+async function lerFreebets(driver, f) {
+  await seguro(() => driver.navegar(f.url), null);
+  for (let i = 0; i < LIMITES.freebets; i++) {
+    if (await seguro(() => driver.naPagina('lerSaldo', f.carteira), null) != null) {
+      // A linha das freebets pode chegar um pouco depois do saldo disponível.
+      for (let j = 0; j < 4; j++) {
+        const n = await seguro(() => driver.naPagina('lerSaldo', f.saldo), null);
+        if (n != null) return n;
+        await driver.esperar(250);
+      }
+      return 0;
+    }
+    await driver.esperar(250);
+  }
+  return null;
+}
+
+/**
  * Uma conta. `casino` é a chave de casinos.js e `fluxo` a linha de login do painel (ou null).
  * Depois de carregar em Levantar qualquer dúvida é `verificar`; antes é `falhada`.
  * `deveParar()` verdadeiro (consentimento retirado) pára entre passos; depois de Levantar já não se pára.
  */
-async function levantarDaConta(driver, { casino, fluxo, credencial, parametros, ensaio, deveParar }, aoPasso) {
+async function levantarDaConta(driver, pedido, aoPasso) {
+  const est = { confirmado: false, saldo: undefined, valor: undefined, freebets: undefined };
+  const r = await levantarComEstado(driver, pedido, aoPasso, est);
+  return typeof est.freebets === 'number' ? { ...r, freebets: est.freebets } : r;
+}
+
+async function levantarComEstado(driver, { casino, fluxo, credencial, parametros, ensaio, deveParar }, aoPasso, est) {
   const cfg = C.CASINOS[casino]?.levantar;
   if (!cfg) return falhada('casino', 'Este casino não tem levantamento automático');
   const passo = async (nome, extra) => { await seguro(() => aoPasso?.(nome, extra), null); };
-  const est = { confirmado: false, saldo: undefined, valor: undefined };
   const parado = () => { try { return deveParar?.() === true; } catch (e) { return false; } };
   const PARADO = 'O consentimento foi retirado: parou antes de Levantar';
 
@@ -77,6 +122,11 @@ async function levantarDaConta(driver, { casino, fluxo, credencial, parametros, 
 
     if (parado()) return falhada('parado', PARADO);
     await passo('a-abrir');
+    if (cfg.freebets) {
+      est.freebets = await lerFreebets(driver, cfg.freebets) ?? undefined;
+      // Sem elas a leitura ficava errada sem ninguém dar por isso, e a regra do lote não se podia aplicar.
+      if (est.freebets == null && (parametros?.lerSaldo || parametros?.freebets)) return falhada('saldo', 'Não foi possível ler as freebets na página da conta');
+    }
     const semCaixa = await abrirCaixa(driver, casino, cfg);
     if (semCaixa) return semCaixa;
 
@@ -91,7 +141,7 @@ async function levantarDaConta(driver, { casino, fluxo, credencial, parametros, 
     // Lote de ler saldos: sai sem abrir o formulário do levantamento.
     if (parametros?.lerSaldo) return { estado: 'ensaio', saldo: est.saldo, motivo: 'Saldo lido' };
 
-    const conta = valorDoLevantamento(parametros, est.saldo);
+    const conta = valorDoLevantamento(parametros, est.saldo, est.freebets ?? 0);
     if (conta.saltar) return { estado: 'saltada', saldo: est.saldo, motivo: conta.saltar };
     est.valor = conta.valor;
 

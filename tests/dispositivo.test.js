@@ -163,7 +163,7 @@ test('iniciar() agenda o sinal de 2 em 2 minutos e cada sinal vai ao dispositivo
   assert.equal(sinais.length >= 1, true);
   const id = c.guardado.get('dispositivo:7').deviceId;
   assert.equal(sinais.at(-1).caminho, `/users/me/devices/${id}/sinal`);
-  assert.deepEqual(sinais.at(-1).corpo, { appVersao: '2.2.0', electronVersao: '44.4.5', autostart: true, capacidades: ['tarefas-v1', 'pacotes-v1', 'levantar-v1', 'depositar-v1', 'betclic-v1'], maquinaId: 'f'.repeat(64), estado: { pc: 'livre' } });
+  assert.deepEqual(sinais.at(-1).corpo, { appVersao: '2.2.0', electronVersao: '44.4.5', autostart: true, capacidades: ['tarefas-v1', 'pacotes-v1', 'levantar-v1', 'depositar-v1', 'betclic-v1', 'freebets-v1'], maquinaId: 'f'.repeat(64), estado: { pc: 'livre' } });
   c.d.parar();
   assert.equal(c.tique(), null);
 });
@@ -415,12 +415,12 @@ test('sem Chrome nem Edge o registo e o sinal não anunciam levantamentos nem de
 test('o registo e o sinal declaram tarefas e pacotes, e levam o identificador cifrado da máquina', async () => {
   const c = cenario({ extra: semEspera });
   await c.d.aceitar();
-  assert.deepEqual(c.posts()[0].corpo.capacidades, ['tarefas-v1', 'pacotes-v1', 'levantar-v1', 'depositar-v1', 'betclic-v1']);
+  assert.deepEqual(c.posts()[0].corpo.capacidades, ['tarefas-v1', 'pacotes-v1', 'levantar-v1', 'depositar-v1', 'betclic-v1', 'freebets-v1']);
   assert.equal(c.posts()[0].corpo.maquinaId, 'f'.repeat(64));
   c.d.iniciar();
   await c.tique().fn();
   const s = c.posts().filter(p => /sinal$/.test(p.caminho)).at(-1).corpo;
-  assert.deepEqual(s.capacidades, ['tarefas-v1', 'pacotes-v1', 'levantar-v1', 'depositar-v1', 'betclic-v1']);
+  assert.deepEqual(s.capacidades, ['tarefas-v1', 'pacotes-v1', 'levantar-v1', 'depositar-v1', 'betclic-v1', 'freebets-v1']);
   assert.equal(s.maquinaId, 'f'.repeat(64));
   assert.deepEqual(s.estado, { pc: 'livre' });
 });
@@ -435,7 +435,7 @@ test('com o consentimento do texto v1 o sinal não leva o identificador da máqu
   await c.tique().fn();
   const s = c.posts().filter(p => /sinal$/.test(p.caminho)).at(-1).corpo;
   assert.equal('maquinaId' in s, false);
-  assert.deepEqual(s.capacidades, ['tarefas-v1', 'pacotes-v1', 'levantar-v1', 'depositar-v1', 'betclic-v1']);
+  assert.deepEqual(s.capacidades, ['tarefas-v1', 'pacotes-v1', 'levantar-v1', 'depositar-v1', 'betclic-v1', 'freebets-v1']);
 });
 
 test('tarefa simulada no sinal: inicia e conclui pelas rotas da tarefa', async () => {

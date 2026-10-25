@@ -281,6 +281,13 @@ const { fixture } = require('./ajuda/paginaJsdom');
 const BC_LOGIN = 'https://www.betclic.pt/login';
 const BC_LEVANTAR = 'https://pay.betclic.pt/withdraw/';
 const BC_INICIO = 'https://www.betclic.pt/';
+const BC_CONTA = 'https://www.betclic.pt/account';
+// Carteira da página da conta como o site a mostra; sem `freebets` a linha não aparece.
+const contaBetclic = (freebets = '64,38&nbsp;€') => `<!doctype html><html><body><div class="myAccount_wallet"><div class="myAccount_walletContent">
+  <div class="myAccount_walletWrapper"><div class="myAccount_walletLabel">Saldo disponível</div><div class="myAccount_walletValue"> 26,47&nbsp;€ </div></div>
+  ${freebets == null ? '' : `<div class="myAccount_walletWrapper is-bonus"><div class="myAccount_walletLabel"><span class="icons icon_freebet"> Freebets </span></div><div data-qa="balance-freebets" class="myAccount_walletValue"> ${freebets} </div></div>`}
+  <div class="myAccount_walletWrapper is-bonus"><div class="myAccount_walletLabel"><span class="icons icon_casinobonus"> BÓNUS DE CASINO </span></div><div data-qa="balance-bonus" class="myAccount_walletValue"> 0,00&nbsp;€ </div></div>
+  </div></div></body></html>`;
 // Página inicial: «A minha conta» abre o menu, e o item dele (`item`) leva ao caixa.
 const inicioBetclic = (item) => ({
   html: `<!doctype html><html><body><header><a href="/account">A minha conta</a></header>
@@ -297,7 +304,7 @@ const BC_FORMULARIO = `<!doctype html><html><body><form>
 const BC_DENTRO = '<!doctype html><html><body><header><a class="header_walletBalance" href="/account/wallet">138,09 €</a></header></body></html>';
 
 // resposta: o que o site mostra depois de Levantar (null: nada).
-function cenarioBetclic({ resposta = 'Pedido confirmado', item = 'Levantar', aoChamar, ...resto } = {}) {
+function cenarioBetclic({ resposta = 'Pedido confirmado', item = 'Levantar', conta = contaBetclic(), aoChamar, ...resto } = {}) {
   let dentro = false;
   const preparaCaixa = (w) => {
     const d = w.document;
@@ -310,6 +317,7 @@ function cenarioBetclic({ resposta = 'Pedido confirmado', item = 'Levantar', aoC
     paginas: {
       [BC_LOGIN]: () => ({ html: dentro ? BC_DENTRO : BC_FORMULARIO }),
       [BC_INICIO]: inicioBetclic(item),
+      [BC_CONTA]: { html: conta },
       [BC_LEVANTAR]: { fixture: 'betclic-levantar', caixa: fixture('betclic-levantar'), caixaUrl: BC_LEVANTAR, preparaCaixa }
     },
     aoChamar: (nome, d) => {
@@ -327,10 +335,80 @@ test('betclic: chega ao caixa pela página inicial e pelo menu da conta, nunca p
   const d = cenarioBetclic();
   const r = await levantarDaConta(d, pedidoBetclic({ ensaio: true }));
   assert.equal(r.estado, 'ensaio');
-  assert.deepEqual(navegacoes(d), [BC_LOGIN, BC_INICIO]);
+  assert.deepEqual(navegacoes(d), [BC_LOGIN, BC_CONTA, BC_INICIO]);
   const n = d.nomes();
   assert.ok(n.indexOf('abrirMenuConta') < n.indexOf('clicarPorTexto'));
   assert.ok(d.esperas > 2, 'espera entre passos');
+});
+
+test('betclic: as freebets da página da conta vão com o saldo e não entram no valor a levantar', async () => {
+  const d = cenarioBetclic();
+  const r = await levantarDaConta(d, pedidoBetclic({ parametros: { modo: 'deixar', deixar: 0, minimo: 1 }, ensaio: true }));
+  assert.deepEqual([r.estado, r.saldo, r.freebets, r.valor], ['ensaio', 137.09, 64.38, 137.09]);
+});
+
+test('betclic: carteira sem a linha das freebets conta 0', async () => {
+  const d = cenarioBetclic({ conta: contaBetclic(null) });
+  const r = await levantarDaConta(d, pedidoBetclic({ parametros: { ...PARAMETROS, lerSaldo: true } }));
+  assert.deepEqual([r.estado, r.saldo, r.freebets], ['ensaio', 137.09, 0]);
+});
+
+test('betclic: sem a carteira à vista o ler saldos falha e o levantamento segue sem freebets', async () => {
+  const leitura = await levantarDaConta(cenarioBetclic({ conta: '<!doctype html><html><body></body></html>' }), pedidoBetclic({ parametros: { ...PARAMETROS, lerSaldo: true } }));
+  assert.deepEqual([leitura.estado, leitura.fase], ['falhada', 'saldo']);
+  assert.match(leitura.motivo, /freebets/);
+
+  const lev = await levantarDaConta(cenarioBetclic({ conta: '<!doctype html><html><body></body></html>' }), pedidoBetclic());
+  assert.equal(lev.estado, 'feita');
+  assert.ok(!('freebets' in lev));
+});
+
+// X=30 no total, só com mais de 20 € reais.
+const REGRA = (senao, extra = {}) => ({ deixar: 30, seRealAcima: 20, senao, senaoDeixar: 5, ...extra });
+const DEIXAR0 = { modo: 'deixar', deixar: 0, minimo: 1 };
+
+test('regra das freebets: acima de Y ficam X entre real e freebets, que nunca se levantam', () => {
+  const v = (saldo, freebets, p = DEIXAR0) => valorDoLevantamento({ ...p, freebets: REGRA('saltar') }, saldo, freebets);
+  assert.deepEqual(v(50, 10), { valor: 30 });
+  assert.deepEqual(v(50, 64.38), { valor: 50 });
+  assert.deepEqual(v(50.64, 0), { valor: 20.64 });
+  // O «tudo menos» do lote continua a valer quando deixa mais.
+  assert.deepEqual(v(50, 64.38, { modo: 'deixar', deixar: 10, minimo: 1 }), { valor: 40 });
+  // Valor fixo: nunca passa do tecto, em euros inteiros.
+  assert.deepEqual(v(50, 10.5, { modo: 'igual', valor: 40, minimo: 1 }), { valor: 30 });
+  assert.deepEqual(v(50, 64, { modo: 'igual', valor: 40, minimo: 1 }), { valor: 40 });
+  assert.match(v(25, 0, { modo: 'deixar', deixar: 0, minimo: 10 }).saltar, /deixar 30 € com as freebets \(real 25 €, freebets 0 €\)/);
+});
+
+test('regra das freebets: com o real até Y vale o «senão» do lote', () => {
+  const v = (senao) => valorDoLevantamento({ ...DEIXAR0, minimo: 1, freebets: REGRA(senao) }, 18, 64.38);
+  assert.deepEqual(v('saltar'), { saltar: 'Saldo real 18 € não passa de 20 € (freebets 64.38 €)' });
+  assert.deepEqual(v('tudo'), { valor: 18 });
+  assert.deepEqual(v('deixar'), { valor: 13 });
+  assert.deepEqual(valorDoLevantamento({ modo: 'igual', valor: 10, minimo: 1, freebets: REGRA('normal') }, 18, 64.38), { valor: 10 });
+  // Exatamente Y não passa de Y.
+  assert.ok(valorDoLevantamento({ ...DEIXAR0, freebets: REGRA('saltar') }, 20, 0).saltar);
+});
+
+test('betclic: com a regra das freebets e sem as conseguir ler, falha sem abrir o caixa', async () => {
+  const d = cenarioBetclic({ conta: '<!doctype html><html><body></body></html>' });
+  const r = await levantarDaConta(d, pedidoBetclic({ parametros: { ...DEIXAR0, freebets: REGRA('saltar') } }));
+  assert.deepEqual([r.estado, r.fase], ['falhada', 'saldo']);
+  assert.ok(!d.nomes().includes('prepararLevantamento'));
+});
+
+test('betclic: a regra usa as freebets lidas na página da conta', async () => {
+  const d = cenarioBetclic();
+  const r = await levantarDaConta(d, pedidoBetclic({ parametros: { modo: 'deixar', deixar: 0, minimo: 1, freebets: { deixar: 100, seRealAcima: 20, senao: 'saltar' } }, ensaio: true }));
+  // 137,09 reais + 64,38 freebets: para ficarem 100 levantam-se 101,47.
+  assert.deepEqual([r.estado, r.valor, r.freebets], ['ensaio', 101.47, 64.38]);
+});
+
+test('placard: não abre a página da conta nem devolve freebets', async () => {
+  const d = cenario();
+  const r = await levantarDaConta(d, pedido());
+  assert.ok(!('freebets' in r));
+  assert.ok(!d.chamadas.some(c => c.nome === 'navegar' && /account/.test(c.args[0])));
 });
 
 test('betclic: sem o item no menu falha antes do caixa', async () => {

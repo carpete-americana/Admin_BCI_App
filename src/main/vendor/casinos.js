@@ -95,6 +95,8 @@
         hostsExtra: ['pay.betclic.pt'],
         montante: '[data-qa="withdraw-amount-input-field"]',
         saldo: '[data-qa="withdraw-remaining-amount-limits"]',
+        // Não se levantam mas contam no saldo; o cabeçalho só as mostra quando há, a página da conta sempre.
+        freebets: { url: 'https://www.betclic.pt/account', carteira: '.myAccount_wallet .myAccount_walletValue', saldo: '[data-qa="balance-freebets"]' },
         metodo: '[data-qa="payment-mean-banktransfer-wrapper"]',
         metodoMarca: '.icon_checkSmall',
         iban: '[data-qa="payment-mean-subtext"]',
