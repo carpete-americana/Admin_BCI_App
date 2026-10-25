@@ -100,6 +100,13 @@ test('saldo lido: o ensaio devolve valor e iban e nunca confirma', async () => {
   assert.ok(!d.nomes().includes('confirmarLevantamento'));
 });
 
+test('ler saldos: sai depois de ler o saldo, sem preparar o levantamento', async () => {
+  const d = cenario();
+  const r = await levantarDaConta(d, pedido({ parametros: { modo: 'deixar', deixar: 0, minimo: 0, ensaio: true, lerSaldo: true } }));
+  assert.deepEqual([r.estado, r.saldo, r.valor], ['ensaio', 30, undefined]);
+  assert.ok(!d.nomes().includes('prepararLevantamento'));
+});
+
 test('fluxo completo: entra, prepara, confirma e lê o sucesso', async () => {
   const d = cenario({ logado: false });
   const passos = [];

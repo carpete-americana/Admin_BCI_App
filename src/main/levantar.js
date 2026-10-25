@@ -88,6 +88,8 @@ async function levantarDaConta(driver, { casino, fluxo, credencial, parametros, 
       if (est.saldo == null) await driver.esperar(250);
     }
     if (est.saldo == null) return falhada('saldo', 'Não foi possível ler o saldo');
+    // Lote de ler saldos: sai sem abrir o formulário do levantamento.
+    if (parametros?.lerSaldo) return { estado: 'ensaio', saldo: est.saldo, motivo: 'Saldo lido' };
 
     const conta = valorDoLevantamento(parametros, est.saldo);
     if (conta.saltar) return { estado: 'saltada', saldo: est.saldo, motivo: conta.saltar };

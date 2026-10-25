@@ -196,6 +196,8 @@ async function instalarAtualizacao(aoErro) {
 
       if (temporizadorInstalacao) clearInterval(temporizadorInstalacao);
       temporizadorInstalacao = null;
+      // Atualizou-se em segundo plano (só no tray): reabre lá, sem janela.
+      const oculto = !BrowserWindow.getAllWindows().some(w => !w.isDestroyed() && w.isVisible());
       BrowserWindow.getAllWindows().forEach(win => {
         if (!win.isDestroyed()) win.destroy();
       });
@@ -207,7 +209,7 @@ async function instalarAtualizacao(aoErro) {
         ? process.execPath
         : path.join(appDataPath, '..', 'Local', 'Programs', 'BCI Admin', 'BCI Admin.exe');
       const installDir = path.dirname(appExePath);
-      const vbsContent = scriptInstalador({ instalador: finalInstallerPath, pasta: installDir, exe: appExePath });
+      const vbsContent = scriptInstalador({ instalador: finalInstallerPath, pasta: installDir, exe: appExePath, oculto });
 
       fs.writeFileSync(vbsPath, vbsContent);
       log.info('[UPDATER] Instalador silencioso em:', installDir);
@@ -232,15 +234,15 @@ async function instalarAtualizacao(aoErro) {
   }
 }
 
-/** Script VBS que corre o instalador em silêncio e reabre a app. */
-function scriptInstalador({ instalador, pasta, exe }) {
+/** Script VBS que corre o instalador em silêncio e reabre a app; `oculto` reabre-a só no tray (--oculto). */
+function scriptInstalador({ instalador, pasta, exe, oculto = false }) {
   // Sem aspas, o Run corta no espaço: «Programs\BCI Admin\BCI Admin.exe» abria a pasta «Programs\BCI» (a da User App).
   const aspas = (texto) => `"""${texto}"""`;
   // O /D= do NSIS tem de ser o último argumento e vai sem aspas, mesmo com espaços.
   return `Set objShell = CreateObject("WScript.Shell")
 objShell.Run ${aspas(instalador)} & " /S /D=${pasta}", 0, True
 WScript.Sleep 2000
-objShell.Run ${aspas(exe)}, 1, False`;
+objShell.Run ${aspas(exe)}${oculto ? ' & " --oculto"' : ''}, 1, False`;
 }
 
 /** Pura, para testar: instala-se sozinha com o instalador pronto, sem trabalho e sem ninguém a usar a app. */

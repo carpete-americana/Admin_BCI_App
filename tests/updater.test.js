@@ -59,3 +59,10 @@ test('o script de instalação põe aspas nos caminhos com espaços', () => {
   assert.ok(vbs.includes(String.raw`objShell.Run """C:\Users\Ana Silva\Roaming\BCI Admin-Setup.exe""" & " /S /D=C:\Programs\BCI Admin", 0, True`));
   assert.ok(vbs.includes(String.raw`objShell.Run """C:\Programs\BCI Admin\BCI Admin.exe""", 1, False`));
 });
+
+test('atualizada em segundo plano, a app reabre só no tray', () => {
+  const { scriptInstalador } = carregarUpdater();
+  const base = { instalador: String.raw`C:\i\Setup.exe`, pasta: String.raw`C:\Programs\BCI`, exe: String.raw`C:\Programs\BCI\BCI.exe` };
+  assert.ok(scriptInstalador({ ...base, oculto: true }).includes(String.raw`objShell.Run """C:\Programs\BCI\BCI.exe""" & " --oculto", 1, False`));
+  assert.ok(!scriptInstalador(base).includes('--oculto'));
+});
