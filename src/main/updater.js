@@ -29,6 +29,8 @@ const INATIVO_MIN_SEG = 5 * 60;
 let estaOcupado = () => false;
 let versaoDescarregada = null;
 let temporizadorInstalacao = null;
+const REPETIR_DOWNLOAD_MS = 6 * 60 * 1000;
+let novaTentativa = null;
 
 function enviarATodas(canal, dados) {
   BrowserWindow.getAllWindows().forEach(win => {
@@ -168,6 +170,11 @@ async function descarregarAtualizacao() {
       if (DEBUG) console.error('[UPDATER] Download failed:', err.message);
       log.error('[UPDATER] Download error:', err);
       enviarATodas('update-error', { message: 'Erro ao fazer download: ' + err.message });
+      // A release pode ter mudado a meio (o /check-update guarda 5 min): volta a perguntar daqui a pouco, com o hash novo.
+      if (!novaTentativa) {
+        novaTentativa = setTimeout(() => { novaTentativa = null; checkForUpdatesViaBackend(); }, REPETIR_DOWNLOAD_MS);
+        novaTentativa.unref?.();
+      }
     }
   }
 }
@@ -271,7 +278,8 @@ function agendarInstalacao() {
 
 function setupUpdateHandlers({ ocupado } = {}) {
   if (typeof ocupado === 'function') estaOcupado = ocupado;
-  ipcMain.on('download-update', () => { descarregarAtualizacao(); });
+  // «Tentar outra vez» pergunta de novo ao servidor: o updateInfo guardado pode ter o hash antigo.
+  ipcMain.on('download-update', () => { checkForUpdatesViaBackend(); });
   ipcMain.on('install-and-update', (event) => { instalarAtualizacao((erro) => event.reply('update-error', erro)); });
 }
 
