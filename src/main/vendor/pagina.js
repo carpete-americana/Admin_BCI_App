@@ -260,7 +260,59 @@
     return fecharPopups(popups) ? 'popup' : null;
   }
 
-  const TOKENS_CAPTCHA = 'input[name="cf-turnstile-response"], textarea[name="g-recaptcha-response"], textarea[name="h-captcha-response"], input[name*="captcha" i], textarea[name*="captcha" i]';
+  // Campos do código que o casino mandou por SMS; um código promocional nunca conta.
+  function camposDoCodigoTelemovel(cfg) {
+    const campos = [];
+    for (const seletor of cfg?.campos || []) {
+      let elementos = [];
+      try { elementos = document.querySelectorAll(seletor); } catch (e) { continue; }
+      for (const el of elementos) {
+        if (campos.includes(el) || /promo|voucher|bonus/i.test(`${el.name || ''} ${el.id || ''}`) || !isVisible(el)) continue;
+        campos.push(el);
+      }
+    }
+    return campos;
+  }
+
+  // O ecrã do código: campos à vista e um texto a falar do telemóvel. null sem ele (o motor de caixa lê o primeiro frame não nulo).
+  function pedidoDeCodigo(cfg) {
+    const campos = camposDoCodigoTelemovel(cfg);
+    if (!campos.length) return null;
+    const texto = semAcentos(textoDaPagina());
+    return (cfg.textos || []).some(t => texto.includes(semAcentos(t))) ? { campos: campos.length } : null;
+  }
+
+  // Um dígito por campo quando o site parte o código em caixas de um carácter.
+  function escreverCodigoTelemovel(cfg, codigo) {
+    if (!pedidoDeCodigo(cfg)) return null;
+    const campos = camposDoCodigoTelemovel(cfg);
+    const texto = String(codigo || '');
+    if (!texto) return false;
+    if (campos.length > 1 && campos.length >= texto.length && campos.every(c => Number(c.maxLength) === 1)) {
+      return [...texto].every((d, i) => preencher(campos[i], d));
+    }
+    return preencher(campos[0], texto);
+  }
+
+  // Sites que validam ao escrever o último dígito não têm botão: null nesse caso, e o motor só espera.
+  function confirmarCodigoTelemovel(cfg) {
+    const campos = camposDoCodigoTelemovel(cfg);
+    if (!campos.length || !pedidoDeCodigo(cfg)) return null;
+    const caixa = campos[0].closest('form, [role="dialog"], [class*="modal" i]') || document.body;
+    const ativo = (b) => b && !b.disabled && b.getAttribute('aria-disabled') !== 'true' && isVisible(b, { permissivo: true });
+    for (const seletor of cfg.botao || []) {
+      let botao = null;
+      try { botao = [...caixa.querySelectorAll(seletor)].find(ativo); } catch (e) { /* seletor inválido */ }
+      if (botao) { botao.click(); return true; }
+    }
+    const alvos = (cfg.botaoTexto || []).map(semAcentos);
+    const botao = [...caixa.querySelectorAll('button, [role="button"]')].find(b => alvos.includes(semAcentos(compacto(b.textContent))) && ativo(b));
+    if (!botao) return null;
+    botao.click();
+    return true;
+  }
+
+  const TOKENS_CAPTCHA ='input[name="cf-turnstile-response"], textarea[name="g-recaptcha-response"], textarea[name="h-captcha-response"], input[name*="captcha" i], textarea[name*="captcha" i]';
   const WIDGETS_CAPTCHA = 'iframe[src*="turnstile" i], iframe[src*="challenges.cloudflare" i], iframe[src*="recaptcha" i], iframe[src*="hcaptcha" i], iframe[src*="captcha" i]';
 
   // A verificação de humano deixa um token no formulário quando acaba; sem token ainda está a decorrer.
@@ -710,6 +762,7 @@
     abrirDetalhesPessoais, lerDetalhesPessoais, lerSaldo, caixaPronto, prepararLevantamento, confirmarLevantamento, resultadoLevantamento, fecharResultadoLevantamento, botaoDoCaixa,
     prepararDeposito, confirmarDeposito, aplicarCodigo, erroDoCodigo, estadoDoCodigo, lerReferenciaMB, extrairReferenciaMB, validadeDeHoras, resultadoDeposito,
     isVisible, vistoPeloUtilizador, encontrarCampo, usernamePerto, preencher, clicarPorTexto, clicarEntrar,
-    camposProntos, paginaHidratada, estadoLogin, estadoSessao, recusarCookies, fecharPopups, passosPosLogin, fecharAvisoDeSaida, captchaPendente, passoLogout, abrirMenuConta, clicarEscondidoPorTexto
+    camposProntos, paginaHidratada, estadoLogin, estadoSessao, recusarCookies, fecharPopups, passosPosLogin, fecharAvisoDeSaida, captchaPendente, passoLogout, abrirMenuConta, clicarEscondidoPorTexto,
+    pedidoDeCodigo, escreverCodigoTelemovel, confirmarCodigoTelemovel
   };
 })();

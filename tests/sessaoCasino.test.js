@@ -133,6 +133,7 @@ test('Placard: o login nunca passa pelos passos depois do login da Betclic', asy
   assert.ok(!d.nomes().includes('passosPosLogin'));
 });
 
+const CODIGO_CERTO = '482915';
 // Betclic: depois de Entrar vêm, por ordem, os ecrãs pedidos (nascimento, telemovel, inicio).
 const NASCIMENTO = '01/05/1990';
 const BETCLIC = 'https://www.betclic.pt';
@@ -145,6 +146,7 @@ const COM_NASCIMENTO = { ...CREDENCIAL, nascimento: NASCIMENTO };
 function betclic(ecras, { dataFica = false, base = BETCLIC } = {}) {
   const cliques = {};
   const dataNoClique = [];
+  const codigosEscritos = [];
   let ecra = -1;
   let seguinte = null;
   const urlDe = (i) => `${base}/ecra/${ecras[i]}`;
@@ -159,12 +161,18 @@ function betclic(ecras, { dataFica = false, base = BETCLIC } = {}) {
           if (!dataFica) avancar();
         }
         if (qa === 'cancel_phone-confirmation_button') avancar();
+        if (qa === 'validate_otp_button') {
+          const escrito = w.document.querySelector('[data-qa="otp-input"]').value;
+          codigosEscritos.push(escrito);
+          if (escrito === CODIGO_CERTO) avancar();
+        }
       });
     }
   };
   const ecrasPorUrl = {
     nascimento: { fixture: 'betclic-nascimento', preparar: (w) => { w.eval(w.document.querySelector('script').textContent); contar(w); } },
     telemovel: { fixture: 'betclic-telemovel', preparar: contar },
+    codigo: { fixture: 'betclic-codigo', preparar: (w) => { contar(w); w.document.querySelector('form').addEventListener('submit', e => e.preventDefault()); } },
     inicio: { fixture: 'betclic-inicio' }
   };
   const paginas = { [LOGIN_BETCLIC]: { html: FORM_BETCLIC } };
@@ -180,7 +188,7 @@ function betclic(ecras, { dataFica = false, base = BETCLIC } = {}) {
   const esperas = [];
   const esperar = d.esperar;
   d.esperar = async (...args) => { esperas.push(args); return esperar(); };
-  return { d, cliques, dataNoClique, esperas };
+  return { d, cliques, dataNoClique, codigosEscritos, esperas };
 }
 
 // A data em qualquer formato: com barras, só dígitos ou o ano.
@@ -361,4 +369,50 @@ test('Betclic: sair reconhece a falta de sessão pelo botão Aceder, sem clicar 
   await d.navegar(`${BETCLIC}/`);
   assert.equal(await sair(d, 'betclic', null), null);
   assert.ok(!d.nomes().includes('passoLogout'));
+});
+
+// O pedido ao dono da conta, como o executor real: devolve os códigos pela ordem dada e regista cada pedido.
+function dono(codigos) {
+  const pedidos = [];
+  return { pedidos, pedirCodigo: async (o) => { pedidos.push(o); return codigos.shift() ?? null; } };
+}
+
+test('Betclic: ecrã do código por SMS: pede-o ao dono, escreve-o, valida e entra', async () => {
+  const b = betclic(['codigo', 'inicio']);
+  const p = dono([CODIGO_CERTO]);
+  assert.equal(await entrar(b.d, 'betclic', null, COM_NASCIMENTO, { pedirCodigo: p.pedirCodigo }), null);
+  assert.deepEqual(p.pedidos, [{ repetido: false }]);
+  assert.deepEqual(b.codigosEscritos, [CODIGO_CERTO]);
+  // O código só vai para o site, nunca para um registo do driver.
+  assert.ok(!JSON.stringify(registados(b)).includes(CODIGO_CERTO));
+});
+
+test('Betclic: código recusado: pede outro (repetido) e entra com o segundo', async () => {
+  const b = betclic(['codigo', 'inicio']);
+  const p = dono(['111111', CODIGO_CERTO]);
+  assert.equal(await entrar(b.d, 'betclic', null, COM_NASCIMENTO, { pedirCodigo: p.pedirCodigo }), null);
+  assert.deepEqual(p.pedidos, [{ repetido: false }, { repetido: true }]);
+  assert.deepEqual(b.codigosEscritos, ['111111', CODIGO_CERTO]);
+});
+
+test('Betclic: dois códigos recusados: falhada sem pedir um terceiro', async () => {
+  const b = betclic(['codigo', 'inicio']);
+  const p = dono(['111111', '222222', CODIGO_CERTO]);
+  const r = await entrar(b.d, 'betclic', null, COM_NASCIMENTO, { pedirCodigo: p.pedirCodigo });
+  assert.deepEqual(r, { estado: 'falhada', fase: 'codigo-telemovel', motivo: 'O casino não aceitou o código do telemóvel' });
+  assert.equal(p.pedidos.length, 2);
+});
+
+test('Betclic: o dono não manda o código: falhada sem escrever nada', async () => {
+  const b = betclic(['codigo', 'inicio']);
+  const r = await entrar(b.d, 'betclic', null, COM_NASCIMENTO, dono([]));
+  assert.equal(r.fase, 'codigo-telemovel');
+  assert.match(r.motivo, /não mandou o código/);
+  assert.deepEqual(b.codigosEscritos, []);
+});
+
+test('Betclic: ecrã do código numa tarefa sem forma de o pedir: falhada', async () => {
+  const b = betclic(['codigo', 'inicio']);
+  const r = await entrar(b.d, 'betclic', null, COM_NASCIMENTO);
+  assert.equal(r.fase, 'codigo-telemovel');
 });

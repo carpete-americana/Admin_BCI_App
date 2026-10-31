@@ -457,3 +457,24 @@ test('placard: nunca fecha o aviso do levantamento', async () => {
   assert.equal(r.estado, 'feita');
   assert.equal(fechos(d), 0);
 });
+
+const ECRA_CODIGO = 'Enviámos um código por SMS para o teu telemóvel <input autocomplete="one-time-code" maxlength="6">';
+
+test('betclic: código por SMS depois de Levantar: pede-o ao dono, escreve-o e lê o sucesso', async () => {
+  const pedidos = [];
+  const d = cenarioBetclic({
+    resposta: ECRA_CODIGO,
+    aoChamar: (nome, dr) => { if (nome === 'escreverCodigoTelemovel') dr.caixa.document.body.innerHTML = '<p>Pedido confirmado</p><button>Feito</button>'; }
+  });
+  const r = await levantarDaConta(d, pedidoBetclic({ pedirCodigo: async (o) => { pedidos.push(o); return '482915'; } }));
+  assert.equal(r.estado, 'feita');
+  assert.deepEqual(pedidos, [{ repetido: false }]);
+});
+
+test('betclic: código por SMS depois de Levantar que não chega: verificar, nunca falhada', async () => {
+  const d = cenarioBetclic({ resposta: ECRA_CODIGO });
+  const r = await levantarDaConta(d, pedidoBetclic({ pedirCodigo: async () => null }));
+  assert.equal(r.estado, 'verificar');
+  assert.equal(r.fase, 'codigo-telemovel');
+  assert.match(r.motivo, /vê no casino/);
+});

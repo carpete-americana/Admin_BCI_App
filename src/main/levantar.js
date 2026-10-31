@@ -7,7 +7,7 @@
 
 const path = require('node:path');
 const C = require('./vendor/casinos.js');
-const { entrar, abrirCaixa, seguro, falhada, verificar } = require('./sessaoCasino');
+const { entrar, abrirCaixa, tratarCodigoTelemovel, seguro, falhada, verificar } = require('./sessaoCasino');
 
 const FICHEIRO_PAGINA = path.join(__dirname, 'vendor', 'pagina.js');
 
@@ -107,17 +107,17 @@ async function levantarDaConta(driver, pedido, aoPasso) {
   return typeof est.freebets === 'number' ? { ...r, freebets: est.freebets } : r;
 }
 
-async function levantarComEstado(driver, { casino, fluxo, credencial, parametros, ensaio, deveParar }, aoPasso, est) {
+async function levantarComEstado(driver, { casino, fluxo, credencial, parametros, ensaio, deveParar, pedirCodigo }, aoPasso, est) {
   const cfg = C.CASINOS[casino]?.levantar;
   if (!cfg) return falhada('casino', 'Este casino não tem levantamento automático');
   const passo = async (nome, extra) => { await seguro(() => aoPasso?.(nome, extra), null); };
   const parado = () => { try { return deveParar?.() === true; } catch (e) { return false; } };
-  const PARADO = 'O consentimento foi retirado: parou antes de Levantar';
+  const PARADO = 'Mandaram parar (um admin ou o consentimento retirado): parou antes de Levantar';
 
   try {
     if (parado()) return falhada('parado', PARADO);
     await passo('a-entrar');
-    const semEntrar = await entrar(driver, casino, fluxo, credencial);
+    const semEntrar = await entrar(driver, casino, fluxo, credencial, { pedirCodigo });
     if (semEntrar) return semEntrar;
 
     if (parado()) return falhada('parado', PARADO);
@@ -168,8 +168,14 @@ async function levantarComEstado(driver, { casino, fluxo, credencial, parametros
       est.confirmado = false;
       return falhada('levantar', 'O botão Levantar não respondeu', { saldo: est.saldo, valor: est.valor });
     }
+    const codigoCfg = C.CASINOS[casino].codigoTelemovel;
     for (let i = 0; i < LIMITES.resultado; i++) {
       await driver.esperar(500);
+      if (codigoCfg && await seguro(() => driver.naCaixa('pedidoDeCodigo', codigoCfg), null)) {
+        const semCodigo = await tratarCodigoTelemovel(driver, codigoCfg, pedirCodigo, 'naCaixa');
+        if (semCodigo) return verificar('codigo-telemovel', `${semCodigo.motivo} depois de carregar em Levantar — vê no casino se ficou feito`, { saldo: est.saldo, valor: est.valor });
+        continue;
+      }
       const r = await seguro(() => driver.naCaixa('resultadoLevantamento', cfg), null);
       if (r?.estado === 'sucesso') {
         // Fecha o aviso de sucesso para deixar o caixa limpo para a conta seguinte; se falhar o pedido já está feito.

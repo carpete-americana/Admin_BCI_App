@@ -361,3 +361,112 @@ test('mesmo que o motor devolva a credencial ou a data, o concluir só leva os c
     assert.ok(!JSON.stringify(c).includes(SENHA), tipo);
   }
 });
+
+// Cifra como a API (services/operacoes/cifraEntrega.js) para a chave do vetor, com o AAD do código.
+function cifrarCodigo(codigo, tarefaId) {
+  const crypto = require('node:crypto');
+  const PKCS8 = Buffer.from('302e020100300506032b656e04220420', 'hex');
+  const privada = crypto.createPrivateKey({ key: Buffer.concat([PKCS8, Buffer.from(vetor.privada, 'base64')]), format: 'der', type: 'pkcs8' });
+  const publica = crypto.createPublicKey(privada);
+  const efemero = crypto.generateKeyPairSync('x25519');
+  const epk = efemero.publicKey.export({ type: 'spki', format: 'der' }).subarray(-32);
+  const segredo = crypto.diffieHellman({ privateKey: efemero.privateKey, publicKey: publica });
+  const chave = Buffer.from(crypto.hkdfSync('sha256', segredo, epk, 'bci-entrega-v1', 32));
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', chave, iv);
+  c.setAAD(Buffer.from(`${tarefaId}:codigo`));
+  const cifrado = Buffer.concat([c.update(codigo, 'utf8'), c.final()]);
+  return { epk: epk.toString('base64'), iv: iv.toString('base64'), tag: c.getAuthTag().toString('base64'), cifrado: cifrado.toString('base64') };
+}
+
+function comCodigo({ leituras, pedido = 200, deveParar }) {
+  const registo = [];
+  let recebido;
+  const base = `/users/me/devices/D1/tarefas/${TAREFA.tarefaId}`;
+  const api = {
+    post: async (rota, corpo) => {
+      registo.push({ post: rota, corpo });
+      if (rota.endsWith('/credenciais')) return { status: 200, corpo: { result: { data: ENTREGA } } };
+      return { status: pedido, corpo: { result: { data: { estado: 'a-espera' } } } };
+    },
+    get: async (rota) => { registo.push({ get: rota }); return leituras.shift() ?? { status: 200, corpo: { result: { data: { estado: 'a-espera' } } } }; }
+  };
+  const io = {
+    iniciar: async () => {}, progresso: async (p) => registo.push({ progresso: p }), concluir: async () => {},
+    esperar: async (ms) => registo.push({ esperar: ms })
+  };
+  const executar = criarExecutorReal({
+    api, raiz: (d) => `/users/me/devices/${d}`,
+    criarJanela: () => ({ driver: {}, fechar: () => {} }),
+    levantar: async (driver, p) => { recebido = await p.pedirCodigo({ repetido: false }); return { estado: 'ensaio' }; },
+    depositar: async () => ({ estado: 'ensaio' }),
+    sair: async () => null
+  });
+  return { correr: () => executar(TAREFA, io, { deviceId: 'D1', privada: async () => vetor.privada, deveParar }), registo, base, recebido: () => recebido };
+}
+
+test('pedirCodigo: avisa a API, espera e devolve o código decifrado', async () => {
+  const pronto = { status: 200, corpo: { result: { data: { estado: 'pronto', entrega: cifrarCodigo('482915', TAREFA.tarefaId) } } } };
+  const c = comCodigo({ leituras: [undefined, pronto] });
+  await c.correr();
+  assert.equal(c.recebido(), '482915');
+  assert.ok(c.registo.some(x => x.post === `${c.base}/codigo` && x.corpo.repetido === false));
+  assert.equal(c.registo.filter(x => x.get === `${c.base}/codigo`).length, 2);
+  assert.ok(c.registo.some(x => x.progresso === 'a-esperar-codigo'));
+});
+
+test('pedirCodigo: um código cifrado para outra tarefa não abre', async () => {
+  const outro = { status: 200, corpo: { result: { data: { estado: 'pronto', entrega: cifrarCodigo('482915', TAREFA.tarefaId + 1) } } } };
+  const c = comCodigo({ leituras: [outro] });
+  await c.correr();
+  assert.equal(c.recebido(), null);
+});
+
+test('pedirCodigo: pedido recusado, expirado ou tarefa perdida dá null sem esperar o tempo todo', async () => {
+  const recusado = comCodigo({ leituras: [], pedido: 409 });
+  await recusado.correr();
+  assert.equal(recusado.recebido(), null);
+  assert.ok(!recusado.registo.some(x => x.get));
+
+  const expirado = comCodigo({ leituras: [{ status: 200, corpo: { result: { data: { estado: 'expirado' } } } }] });
+  await expirado.correr();
+  assert.equal(expirado.recebido(), null);
+  assert.equal(expirado.registo.filter(x => x.get).length, 1);
+
+  const perdida = comCodigo({ leituras: [{ status: 404, corpo: null }] });
+  await perdida.correr();
+  assert.equal(perdida.recebido(), null);
+});
+
+test('pedirCodigo: sem resposta, desiste ao fim de 5 minutos de leituras', async () => {
+  const c = comCodigo({ leituras: [] });
+  await c.correr();
+  assert.equal(c.recebido(), null);
+  const esperado = c.registo.filter(x => x.esperar).reduce((s, x) => s + x.esperar, 0);
+  assert.equal(esperado, 5 * 60 * 1000);
+});
+
+test('pedirCodigo: consentimento retirado a meio: pára de esperar', async () => {
+  let c = null;
+  c = comCodigo({ leituras: [], deveParar: () => !!c && c.registo.filter(x => x.get).length >= 3 });
+  await c.correr();
+  assert.equal(c.recebido(), null);
+  assert.equal(c.registo.filter(x => x.get).length, 3);
+});
+
+test('pedirCodigo: a app a fechar deixa de esperar pelo dono', async () => {
+  const c = comCodigo({ leituras: [] });
+  const ctx = { deviceId: 'D1', privada: async () => vetor.privada, aFechar: () => c.registo.filter(x => x.get).length >= 2 };
+  // O mesmo executor, com o contexto da app a fechar.
+  const executar = criarExecutorReal({
+    api: { post: async (r) => (r.endsWith('/credenciais') ? { status: 200, corpo: { result: { data: ENTREGA } } } : { status: 200, corpo: {} }),
+      get: async (r) => { c.registo.push({ get: r }); return { status: 200, corpo: { result: { data: { estado: 'a-espera' } } } }; } },
+    raiz: (d) => `/users/me/devices/${d}`, criarJanela: () => ({ driver: {}, fechar: () => {} }),
+    levantar: async (driver, p) => ({ estado: 'ensaio', motivo: String(await p.pedirCodigo()) }),
+    depositar: async () => ({ estado: 'ensaio' }), sair: async () => null
+  });
+  let fim;
+  await executar(TAREFA, { iniciar: async () => {}, concluir: async (e, r) => { fim = r; }, esperar: async () => {} }, ctx);
+  assert.equal(fim.motivo, 'null');
+  assert.equal(c.registo.filter(x => x.get).length, 2);
+});

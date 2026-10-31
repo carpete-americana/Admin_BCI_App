@@ -6,7 +6,7 @@
  */
 
 const C = require('./vendor/casinos.js');
-const { entrar, abrirCaixa, seguro, falhada, verificar } = require('./sessaoCasino');
+const { entrar, abrirCaixa, tratarCodigoTelemovel, seguro, falhada, verificar } = require('./sessaoCasino');
 
 const LIMITES = { preparar: 60, codigo: 40, validarCodigo: 12, resultado: 90 };
 
@@ -40,7 +40,7 @@ function hostsExtraDe(casino, tipo = 'depositar') {
  * Uma conta. Pede a referência Multibanco; quem a paga é uma pessoa, depois.
  * Depois de carregar em Depositar qualquer dúvida é `verificar` (pode haver uma referência gerada); antes é `falhada`.
  */
-async function depositarDaConta(driver, { casino, fluxo, credencial, parametros, ensaio, deveParar }, aoPasso) {
+async function depositarDaConta(driver, { casino, fluxo, credencial, parametros, ensaio, deveParar, pedirCodigo }, aoPasso) {
   const cfg = C.CASINOS[casino]?.depositar;
   if (!cfg) return falhada('casino', 'Este casino não tem depósito automático');
   const conta = valorDoDeposito(parametros);
@@ -57,12 +57,12 @@ async function depositarDaConta(driver, { casino, fluxo, credencial, parametros,
   const passo = async (nome, info) => { await seguro(() => aoPasso?.(nome, info), null); };
   const est = { confirmado: false };
   const parado = () => { try { return deveParar?.() === true; } catch (e) { return false; } };
-  const PARADO = 'O consentimento foi retirado: parou antes de Depositar';
+  const PARADO = 'Mandaram parar (um admin ou o consentimento retirado): parou antes de Depositar';
 
   try {
     if (parado()) return falhada('parado', PARADO);
     await passo('a-entrar');
-    const semEntrar = await entrar(driver, casino, fluxo, credencial);
+    const semEntrar = await entrar(driver, casino, fluxo, credencial, { pedirCodigo });
     if (semEntrar) return semEntrar;
 
     if (parado()) return falhada('parado', PARADO);
@@ -116,8 +116,14 @@ async function depositarDaConta(driver, { casino, fluxo, credencial, parametros,
       est.confirmado = false;
       return falhada('depositar', 'O botão Depositar não respondeu', extra);
     }
+    const codigoCfg = C.CASINOS[casino].codigoTelemovel;
     for (let i = 0; i < LIMITES.resultado; i++) {
       await driver.esperar(500);
+      if (codigoCfg && await seguro(() => driver.naCaixa('pedidoDeCodigo', codigoCfg), null)) {
+        const semCodigo = await tratarCodigoTelemovel(driver, codigoCfg, pedirCodigo, 'naCaixa');
+        if (semCodigo) return verificar('codigo-telemovel', `${semCodigo.motivo} depois de carregar em Depositar — vê no casino se a referência foi gerada`, extra);
+        continue;
+      }
       const r = await seguro(() => driver.naCaixa('resultadoDeposito', cfg), null);
       const ref = r?.estado === 'referencia' ? r : await seguro(() => driver.naJanelasNovas('lerReferenciaMB'), null);
       if (ref?.entidade && ref?.referencia) {

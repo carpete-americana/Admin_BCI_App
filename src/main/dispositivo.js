@@ -90,6 +90,8 @@ function criarDispositivo(deps) {
   let contaReal = false;
   // Consentimento retirado com trabalho a meio: a conta real pára antes de Levantar e o pacote não segue.
   let parado = false;
+  // Contas a decorrer que um admin mandou parar (vem no sinal).
+  let aParar = new Set();
   const vistas = [];
 
   const chaveDe = (userId) => `dispositivo:${userId}`;
@@ -305,6 +307,7 @@ function criarDispositivo(deps) {
         arranqueSuspenso = false;
         aplicarArranque(reg.autostart !== false);
       }
+      aParar = new Set(Array.isArray(d?.parar) ? d.parar.map(Number) : []);
       if (d?.pacote) tratarPacote(reg.deviceId, d.pacote);
       else if (d?.tarefa) tratarTarefa(reg.deviceId, d.tarefa);
       return d?.proximoSinalSeg;
@@ -438,7 +441,7 @@ function criarDispositivo(deps) {
       const io = ioDe(deviceId, tarefaId, `${tarefaId}@p${pacoteId}`, () => { iniciadas++; pausar = true; });
       contaReal = real;
       try {
-        await (real ? executorReal(t, io, { deviceId, privada: privadaDecifrada, deveParar: () => parado }) : executor(t, io));
+        await (real ? executorReal(t, io, { deviceId, privada: privadaDecifrada, deveParar: () => parado || aParar.has(tarefaId), aFechar: () => aTerminar }) : executor(t, io));
       } catch (e) {
         registar('Conta do pacote não concluída', { tarefaId, erro: e.message });
       } finally {
