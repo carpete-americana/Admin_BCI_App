@@ -968,7 +968,7 @@ test('terminar com uma conta real a decorrer espera até ao limite das reais e a
   await new Promise(r => setImmediate(r));
   const fim = c.d.terminar();
   await new Promise(r => setImmediate(r));
-  assert.deepEqual(limite.pedidos, [10 * 60 * 1000]);
+  assert.deepEqual(limite.pedidos, [20 * 60 * 1000]);
   soltar();
   await fim;
   assert.equal(c.d.ocupado(), false);
@@ -1091,4 +1091,18 @@ test('revogar com uma conta real a meio: o executor vê deveParar, o pacote não
   assert.deepEqual(reais, [1], 'a segunda conta não começa');
   assert.equal(apagados, 1);
   assert.ok(c.chamadas.some(x => x.caminho.endsWith('/pacotes/9/largar')));
+});
+
+test('a conta que um admin mandou parar recebe deveParar; as outras não', async () => {
+  const vistos = new Map();
+  const pacote = { pacoteId: 9, loteId: 5, pausaSeg: [0, 0], contas: [contaReal(1), contaReal(2)] };
+  const c = cenario({
+    rotas: comPacote(pacote, { parar: [1] }),
+    extra: { ...semEspera, executorReal: async (t, io, ctx) => { vistos.set(t.tarefaId, ctx.deveParar()); await io.iniciar(1); await io.concluir('falhada', {}); } }
+  });
+  await c.d.aceitar();
+  c.d.iniciar();
+  await c.tique().fn();
+  await c.d.aguardarTarefa();
+  assert.deepEqual([...vistos], [[1, true], [2, false]]);
 });
