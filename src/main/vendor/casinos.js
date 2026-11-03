@@ -86,6 +86,14 @@
         sem: ['[data-qa="commonSignInButton"]']
       },
       posLogin: { nascimento: { campo: '[data-qa="birthdate"]', botao: '[data-qa="validate_birthdate_button"]' } },
+      // Às vezes pede o código que mandou por SMS ao dono da conta; as apps pedem-lho pelo BCI. Largo de propósito: o ecrã ainda não foi lido no site.
+      codigoTelemovel: {
+        campos: ['input[autocomplete="one-time-code"]', 'input[data-qa*="otp" i]', 'input[data-qa*="code" i]', 'input[data-qa*="sms" i]',
+          'input[name*="otp" i]', 'input[id*="otp" i]', 'input[name*="code" i]', 'input[id*="code" i]', 'input[data-qa*="pin" i]'],
+        textos: ['sms', 'telemóvel', 'telemovel', 'mensagem'],
+        botao: ['button[type="submit"]', 'button[data-qa*="validate" i]', 'button[data-qa*="confirm" i]'],
+        botaoTexto: ['validar', 'confirmar', 'continuar', 'verificar', 'enviar']
+      },
       levantar: {
         inicio: 'https://www.betclic.pt/',
         url: 'https://pay.betclic.pt/withdraw/',

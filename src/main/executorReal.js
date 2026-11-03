@@ -10,11 +10,15 @@ const { chaveDoNome } = require('./levantar');
 const { hostsExtraDe } = require('./depositar');
 const { sair: sairDoCasino } = require('./sessaoCasino');
 
-const TEMPO_MAX_REAL_MS = 10 * 60 * 1000;
+// Cabe o login, dois pedidos de código ao dono da conta (5 min cada) e o caixa.
+const TEMPO_MAX_REAL_MS = 20 * 60 * 1000;
+// O servidor só aceita a resposta do dono nos 6 minutos a seguir ao pedido.
+const ESPERA_CODIGO_MS = 5 * 60 * 1000;
+const INTERVALO_CODIGO_MS = 4000;
 // O logout no fim não pode prender o PC; se não acabar, a tarefa seguinte termina a sessão antes de entrar.
 const TEMPO_MAX_SAIR_MS = 45 * 1000;
 // Estimativa do que falta em cada passo, para o painel; o limite duro é o tempo máximo.
-const RESTANTE_SEG = { 'a-entrar': 120, 'a-abrir': 75, 'a-ler-saldo': 60, 'a-preencher': 40, 'a-levantar': 20 };
+const RESTANTE_SEG = { 'a-entrar': 120, 'a-abrir': 75, 'a-ler-saldo': 60, 'a-preencher': 40, 'a-levantar': 20, 'a-esperar-codigo': ESPERA_CODIGO_MS / 1000 };
 const ESTADOS = ['feita', 'ensaio', 'saltada', 'falhada', 'verificar'];
 
 // Só os 4 últimos dígitos do IBAN saem da app.
@@ -36,8 +40,8 @@ function resultadoDe(r, tipo) {
 }
 
 /**
- * `raiz(deviceId)` dá a rota do dispositivo; o contexto `ctx = { deviceId, privada(), deveParar() }` traz a chave privada em base64 (só aqui é lida)
- * e diz se o consentimento foi retirado a meio.
+ * `raiz(deviceId)` dá a rota do dispositivo; o contexto `ctx = { deviceId, privada(), deveParar(), aFechar() }` traz a chave privada em base64 (só aqui é lida)
+ * e diz se é para parar (consentimento retirado ou um admin) ou se a app está a fechar.
  * Devolve (tarefa, io, ctx) => Promise<void>, com a forma do executor fictício.
  */
 function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, sair = sairDoCasino, setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout }) {
@@ -53,7 +57,7 @@ function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, sair =
     if (tipo !== 'depositar' && tipo !== 'levantar') return io.concluir('falhada', { fase: 'tipo', motivo: 'Tipo de tarefa desconhecido' });
     const motorDoTipo = tipo === 'depositar' ? depositar : levantar;
 
-    if (ctx.deveParar?.() === true) return io.concluir('falhada', { fase: 'parado', motivo: 'O consentimento foi retirado antes de começar' });
+    if (ctx.deveParar?.() === true) return io.concluir('falhada', { fase: 'parado', motivo: 'Mandaram parar antes de começar' });
 
     let dados;
     try {
@@ -80,6 +84,34 @@ function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, sair =
     let janela = null;
     let temporizador = null;
     let terminado = false;
+    const esperar = io.esperar || ((ms) => new Promise((resolve) => setTimeoutFn(resolve, ms)));
+    const base = `${raiz(ctx.deviceId)}/tarefas/${id}`;
+    // O casino mandou um código por SMS ao dono da conta: a API avisa-o e o código volta cifrado para este PC. null se não chegou.
+    // A app a fechar também desiste: senão o fecho esperava pelos minutos do dono.
+    const desistir = () => terminado || ctx.deveParar?.() === true || ctx.aFechar?.() === true;
+    const pedirCodigo = async ({ repetido = false } = {}) => {
+      if (desistir()) return null;
+      await io.progresso?.('a-esperar-codigo', ESPERA_CODIGO_MS / 1000);
+      try {
+        const r = await api.post(`${base}/codigo`, { repetido: !!repetido });
+        if (r.status !== 200) return null;
+      } catch (e) {
+        return null;
+      }
+      for (let i = 0; i < ESPERA_CODIGO_MS / INTERVALO_CODIGO_MS; i++) {
+        await esperar(INTERVALO_CODIGO_MS);
+        if (desistir()) return null;
+        let r;
+        try { r = await api.get(`${base}/codigo`); } catch (e) { continue; }
+        if (r.status >= 400 && r.status < 500 && r.status !== 429) return null;
+        const d = r.corpo?.result?.data ?? r.corpo?.data;
+        if (d?.estado === 'expirado') return null;
+        if (r.status === 200 && d?.entrega) {
+          try { return decifrarEntrega(await ctx.privada(), `${id}:codigo`, d.entrega); } catch (e) { return null; }
+        }
+      }
+      return null;
+    };
     let r;
     let acabou = false;
     try {
@@ -89,7 +121,7 @@ function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, sair =
       });
       const motor = motorDoTipo(janela.driver, {
         casino, fluxo: dados.fluxo ?? null, credencial, parametros: tarefa.parametros || {}, ensaio: !!tarefa.parametros?.ensaio,
-        deveParar: () => ctx.deveParar?.() === true
+        deveParar: () => ctx.deveParar?.() === true, pedirCodigo
       }, async (passo) => {
         if (!terminado) await io.progresso?.(passo, RESTANTE_SEG[passo] ?? 60);
       });
@@ -116,4 +148,4 @@ function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, sair =
   };
 }
 
-module.exports = { criarExecutorReal, TEMPO_MAX_REAL_MS };
+module.exports = { criarExecutorReal, TEMPO_MAX_REAL_MS, ESPERA_CODIGO_MS };

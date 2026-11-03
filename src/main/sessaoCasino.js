@@ -6,6 +6,8 @@ const C = require('./vendor/casinos.js');
 
 const LIMITES_LOGIN = { sessao: 40, entrar: 60, popups: 15, cliquesExtra: 4 };
 const LIMITES_CAIXA = { menu: 20, item: 30, caixa: 60 };
+// Dois códigos no máximo (o segundo quando o site recusa o primeiro); depois de escrever, até ~10 s para o ecrã sair.
+const LIMITES_CODIGO = { pedidos: 2, confirmar: 10, aceite: 20 };
 
 // As mensagens são sempre as nossas: o texto de uma exceção do driver pode trazer os argumentos, password incluída.
 const falhada = (fase, motivo, extra) => ({ estado: 'falhada', fase, motivo, ...extra });
@@ -88,13 +90,39 @@ async function sair(driver, chave, fluxoPainel) {
   return falhada('logout', 'A sessão da conta anterior não terminou');
 }
 
+/**
+ * O casino pediu o código que mandou por SMS: pede-o ao dono da conta pelo BCI (`pedirCodigo`), escreve-o e espera que o ecrã saia.
+ * null quando o ecrã saiu; falhada('codigo-telemovel') se o código não chegou ou não foi aceite. `onde` é naPagina ou naCaixa.
+ */
+async function tratarCodigoTelemovel(driver, cfg, pedirCodigo, onde = 'naPagina') {
+  if (typeof pedirCodigo !== 'function') return falhada('codigo-telemovel', 'O casino pediu um código do telemóvel');
+  for (let pedido = 0; pedido < LIMITES_CODIGO.pedidos; pedido++) {
+    const codigo = await seguro(() => pedirCodigo({ repetido: pedido > 0 }), null);
+    if (!codigo) return falhada('codigo-telemovel', 'O dono da conta não mandou o código do telemóvel a tempo');
+    if (!await seguro(() => driver[onde]('escreverCodigoTelemovel', cfg, codigo), null)) {
+      // O ecrã pode ter saído entretanto (o site deixou passar): segue.
+      if (!await seguro(() => driver[onde]('pedidoDeCodigo', cfg), null)) return null;
+      return falhada('codigo-telemovel', 'Não foi possível escrever o código do telemóvel');
+    }
+    for (let i = 0; i < LIMITES_CODIGO.confirmar; i++) {
+      await driver.esperar(300);
+      if (await seguro(() => driver[onde]('confirmarCodigoTelemovel', cfg), null)) break;
+    }
+    for (let i = 0; i < LIMITES_CODIGO.aceite; i++) {
+      await driver.esperar(500);
+      if (!await seguro(() => driver[onde]('pedidoDeCodigo', cfg), null)) return null;
+    }
+  }
+  return falhada('codigo-telemovel', 'O casino não aceitou o código do telemóvel');
+}
+
 // O banner pode aparecer a qualquer momento (carrega depois da página): quem espera chama-o a cada volta.
 const recusarCookies = (driver, chave) => (C.CASINOS[chave]?.cookies
   ? seguro(() => driver.naPagina('recusarCookies', C.CASINOS[chave].cookies), false)
   : Promise.resolve(false));
 
 // O browser é do casino, não da conta: uma sessão aberta pode ser de outra conta e termina-se antes de entrar.
-async function entrar(driver, chave, fluxoPainel, credencial) {
+async function entrar(driver, chave, fluxoPainel, credencial, { pedirCodigo } = {}) {
   const cfg = C.CASINOS[chave];
   const s = C.seletoresDe(chave);
   const fluxo = fluxoDe(chave, fluxoPainel);
@@ -159,6 +187,12 @@ async function entrar(driver, chave, fluxoPainel, credencial) {
     await driver.esperar(500);
     // Um banner que chegue depois do clique tapa o formulário: recusa-se e volta a clicar em Entrar.
     if (await recusarCookies(driver, chave)) await seguro(() => driver.naPagina('clicarEntrar', botao), false);
+    // Antes do estado: um «código incorreto» no ecrã do código dava o login por recusado.
+    if (cfg.codigoTelemovel && await seguro(doCasino, false) && await seguro(() => driver.naPagina('pedidoDeCodigo', cfg.codigoTelemovel), null)) {
+      const semCodigo = await tratarCodigoTelemovel(driver, cfg.codigoTelemovel, pedirCodigo);
+      if (semCodigo) return semCodigo;
+      continue;
+    }
     estado = await seguro(() => driver.naPagina('estadoLogin', s, opcoes), null);
     if (estado?.estado === 'entrou') break;
     if (estado?.estado === 'falhou') return falhada('login', estado.erro || 'O site recusou o login');
@@ -242,4 +276,4 @@ async function abrirCaixa(driver, chave, cfg) {
   return falhada('caixa', 'O caixa não abriu');
 }
 
-module.exports = { entrar, sair, abrirCaixa, seguro, falhada, verificar, recusarCookies, LIMITES_LOGIN };
+module.exports = { entrar, sair, abrirCaixa, tratarCodigoTelemovel, seguro, falhada, verificar, recusarCookies, LIMITES_LOGIN };
