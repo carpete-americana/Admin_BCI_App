@@ -110,9 +110,13 @@
     }
     if (desativado) return false;
     const alvos = (textos || []).map(t => t.toLowerCase());
-    for (const btn of document.querySelectorAll('button, input[type="submit"], a[role="button"], [role="button"]')) {
-      if (btn.disabled || !isVisible(btn) || OUTRO_ACESSO.test(textoDe(btn))) continue;
-      if (alvos.some(t => textoDe(btn).includes(t))) { btn.click(); return true; }
+    // Do campo da password para fora: na Placard o «Entrar» do cabeçalho vem antes no DOM e só reabre o login.
+    const password = [...document.querySelectorAll('input[type="password"]')].find(el => isVisible(el));
+    for (let caixa = password?.parentElement || document.body; caixa; caixa = caixa.parentElement) {
+      for (const btn of caixa.querySelectorAll('button, input[type="submit"], a[role="button"], [role="button"]')) {
+        if (btn.disabled || !isVisible(btn) || OUTRO_ACESSO.test(textoDe(btn))) continue;
+        if (alvos.some(t => textoDe(btn).includes(t))) { btn.click(); return true; }
+      }
     }
     return false;
   }
