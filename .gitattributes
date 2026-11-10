@@ -1,2 +1,7 @@
 src/main/vendor/** -text
+# Cópias do motor (raiz do BCI, npm run sincronizar:motor): comparam-se byte a byte, por isso ficam em LF.
 src/main/entregaCifra.js -text
+src/main/sessaoCasino.js -text
+src/main/levantar.js -text
+src/main/depositar.js -text
+src/main/executorReal.js -text
