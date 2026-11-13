@@ -28,6 +28,7 @@ function criarApi({ baseUrl, lerToken, guardarToken = null, fetchFn = fetch, tem
   return {
     get: (caminho) => pedir('GET', caminho),
     post: (caminho, corpo) => pedir('POST', caminho, corpo),
+    put: (caminho, corpo) => pedir('PUT', caminho, corpo),
     del: (caminho) => pedir('DELETE', caminho)
   };
 }
