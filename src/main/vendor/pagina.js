@@ -286,13 +286,16 @@
     return (cfg.textos || []).some(t => texto.includes(semAcentos(t))) ? { campos: campos.length } : null;
   }
 
+  // Caixa de um carácter: maxlength 1 ou, como na Betclic, só um pattern de uma classe ("[0-9]").
+  const umCaracter = (c) => Number(c.maxLength) === 1 || /^\[[^\]]+\]$/.test(c.getAttribute('pattern') || '');
+
   // Um dígito por campo quando o site parte o código em caixas de um carácter.
   function escreverCodigoTelemovel(cfg, codigo) {
     if (!pedidoDeCodigo(cfg)) return null;
     const campos = camposDoCodigoTelemovel(cfg);
     const texto = String(codigo || '');
     if (!texto) return false;
-    if (campos.length > 1 && campos.length >= texto.length && campos.every(c => Number(c.maxLength) === 1)) {
+    if (campos.length > 1 && campos.length >= texto.length && campos.every(umCaracter)) {
       return [...texto].every((d, i) => preencher(campos[i], d));
     }
     return preencher(campos[0], texto);
@@ -302,7 +305,8 @@
   function confirmarCodigoTelemovel(cfg) {
     const campos = camposDoCodigoTelemovel(cfg);
     if (!campos.length || !pedidoDeCodigo(cfg)) return null;
-    const caixa = campos[0].closest('form, [role="dialog"], [class*="modal" i]') || document.body;
+    // Com cfg.ecra só se procura o botão dentro do ecrã do código: o body tem botões de outras coisas.
+    const caixa = (cfg.ecra && campos[0].closest(cfg.ecra)) || campos[0].closest('form, [role="dialog"], [class*="modal" i]') || document.body;
     const ativo = (b) => b && !b.disabled && b.getAttribute('aria-disabled') !== 'true' && isVisible(b, { permissivo: true });
     for (const seletor of cfg.botao || []) {
       let botao = null;
