@@ -36,7 +36,7 @@
     "puppeteer-core": "^25.16.0"
   },
   "devDependencies": {
-    "electron": "^44.4.5",
+    "electron": "^44.10.2",
     "electron-builder": "^26.15.3",
     "electronmon": "^2.0.4",
     "jsdom": "^26.1.0"
