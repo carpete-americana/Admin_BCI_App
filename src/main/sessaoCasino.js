@@ -260,8 +260,8 @@ async function abrirCaixa(driver, chave, cfg) {
       if (await seguro(() => driver.naCaixa('caixaPronto', cfg), null)) return null;
       await driver.esperar(250);
     }
-    // Exato e só o que se vê, como no menu; com o caixa aberto já não se chegava aqui.
-    await seguro(() => driver.naPagina('clicarPorTexto', cfg.abrirTexto, { exato: true, permissivo: false }), false);
+    // Exato, só o que se vê e nunca dentro de cfg.abrirFora: o caixa pode estar aberto sem o montante.
+    await seguro(() => driver.naPagina('clicarPorTexto', cfg.abrirTexto, { exato: true, permissivo: false, fora: cfg.abrirFora ?? null }), false);
     return esperarCaixa(driver, cfg);
   }
   const { conta, textos } = cfg.viaMenu;

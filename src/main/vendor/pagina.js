@@ -75,11 +75,12 @@
 
   const textoDe = (el) => (el.textContent || el.value || el.getAttribute('aria-label') || '').toLowerCase().trim();
 
-  // exato=true compara o texto inteiro: «sim» apanhava «Simulador».
-  function clicarPorTexto(textos, { exato = false, permissivo = true } = {}) {
+  // exato=true compara o texto inteiro: «sim» apanhava «Simulador». fora: seletor de onde nunca se clica.
+  function clicarPorTexto(textos, { exato = false, permissivo = true, fora = null } = {}) {
     const alvos = (textos || []).map(t => t.toLowerCase());
     const candidatos = document.querySelectorAll('button, a, [role="button"], [role="menuitem"], [onclick], input[type="button"], input[type="submit"]');
     for (const el of candidatos) {
+      if (fora && el.closest(fora)) continue;
       const texto = textoDe(el);
       if (!texto) continue;
       const bate = exato ? alvos.includes(texto) : alvos.some(t => texto.includes(t));

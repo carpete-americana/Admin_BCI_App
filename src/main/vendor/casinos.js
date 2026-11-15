@@ -217,6 +217,8 @@
         // O login e o banner de cookies também são .ModalContainer: só o do caixa tem o Multibanco.
         contentor: '.ModalContainer:has([data-qa-title="Multibanco"])',
         abrirTexto: ['depositar'],
+        // Abre-se pelo «Depositar» do cabeçalho; o do modal, com o MB WAY escolhido, pede o pagamento ao telemóvel.
+        abrirFora: '.ModalContainer',
         montante: ['input[inputmode="decimal"]'],
         metodo: ['[data-qa-title="Multibanco"]'],
         metodoExato: true,

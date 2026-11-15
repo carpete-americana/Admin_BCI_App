@@ -455,12 +455,17 @@ const LB_REFERENCIA = 'https://payments.lebull.pt/payment/initialize/api/1?sessi
  * teimoso: o clique no Multibanco não muda nada. modal: false, o #cashier só abre o modal pelo «Depositar» do cabeçalho.
  * codigo: 'invalido' (o Aplicar mostra a recusa) ou 'nao-elegivel'. depois: 'janela' (a referência numa janela nova) ou 'nada'.
  */
-function cenarioLebull({ teimoso = false, modal = true, codigo = null, depois = 'janela', aoChamar, ...resto } = {}) {
+function cenarioLebull({ teimoso = false, modal = true, codigo = null, depois = 'janela', semMontanteNemCabecalho = false, aoChamar, ...resto } = {}) {
   let dentro = false;
   let aberto = modal;
   const estado = { cliquesModal: 0, cliquesCabecalho: 0 };
   const preparar = (w) => {
     const d = w.document;
+    if (semMontanteNemCabecalho) {
+      // O modal aberto ainda sem o montante e o «Depositar» do cabeçalho escondido: só o do modal se vê.
+      d.querySelector('input[inputmode="decimal"]')?.remove();
+      for (const b of d.querySelectorAll('button')) if (b.textContent.trim() === 'Depositar' && !b.closest('.ModalContainer')) b.hidden = true;
+    }
     d.addEventListener('submit', (e) => e.preventDefault());
     d.addEventListener('click', (e) => {
       const alvo = e.target;
@@ -506,8 +511,17 @@ test('lebull: #cashier sem modal → carrega no «Depositar» do cabeçalho uma 
   assert.deepEqual([r.estado, r.valor], ['ensaio', 10]);
   const cliques = abriuPeloCabecalho(d);
   assert.equal(cliques.length, 1);
-  assert.deepEqual(cliques[0].args[1], { exato: true, permissivo: false });
+  assert.deepEqual(cliques[0].args[1], { exato: true, permissivo: false, fora: '.ModalContainer' });
   assert.deepEqual([d.estado.cliquesCabecalho, d.estado.cliquesModal], [1, 0]);
+});
+
+test('lebull: modal aberto sem montante e cabeçalho escondido → o «Depositar» do modal nunca é premido', async () => {
+  const d = cenarioLebull({ semMontanteNemCabecalho: true });
+  const r = await depositarDaConta(d, pedidoLebull());
+  assert.deepEqual([r.estado, r.fase, r.motivo], ['falhada', 'caixa', 'O caixa não abriu']);
+  assert.equal(abriuPeloCabecalho(d).length, 1);
+  assert.deepEqual([d.estado.cliquesModal, d.estado.cliquesCabecalho], [0, 0]);
+  assert.ok(!d.nomes().includes('prepararDeposito'));
 });
 
 test('lebull: #cashier com o modal aberto não carrega no cabeçalho', async () => {
