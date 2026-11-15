@@ -10,6 +10,7 @@ function sessaoFalsa() {
   const s = { pedido: null, verificacao: null, ouvintes: {}, registos: 0 };
   s.setPermissionRequestHandler = (f) => { s.pedido = f; s.registos++; };
   s.setPermissionCheckHandler = (f) => { s.verificacao = f; };
+  s.webRequest = { filtro: null, ouvinte: null, registos: 0, onBeforeRequest(filtro, f) { if (typeof filtro === 'function' || filtro === null) { this.filtro = null; this.ouvinte = filtro; } else { this.filtro = filtro; this.ouvinte = f; } this.registos++; } };
   s.on = (ev, f) => { s.ouvintes[ev] = [...(s.ouvintes[ev] || []), f]; };
   return s;
 }
@@ -281,4 +282,35 @@ test('limparParticoes apaga só as pastas op-*', async () => {
   const n = await limparParticoes({ listarParticoes: async () => ['op-3', 'op-casa-placard', 'outra', 'Cache', 'op'], session });
   assert.equal(n, 2);
   assert.deepEqual(limpas, ['persist:op-3', 'persist:op-casa-placard']);
+});
+
+test('bloquear regista o filtro dos hosts na sessão, cancela o que lhe chega e o fechar retira-o', async () => {
+  const { BrowserWindow, estado } = electronFalso();
+  const j = criarJanela('lebull', { BrowserWindow });
+  await j.driver.bloquear(['forms.kycaid.com']);
+  const wr = estado.session.webRequest;
+  assert.deepEqual(wr.filtro.urls, ['*://forms.kycaid.com/*', '*://*.forms.kycaid.com/*']);
+  const decide = (url) => { let r; wr.ouvinte({ url }, (x) => { r = x; }); return r; };
+  assert.deepEqual(decide('https://forms.kycaid.com/abc'), { cancel: true });
+  j.fechar();
+  assert.equal(wr.ouvinte, null);
+});
+
+test('bloquear duas vezes não empilha, e duas janelas da mesma sessão só retiram o filtro quando a última fecha', async () => {
+  const session = sessaoFalsa();
+  const a = criarJanela('lebull', electronFalso({ session }));
+  const b = criarJanela('lebull', electronFalso({ session }));
+  await a.driver.bloquear(['forms.kycaid.com']);
+  await a.driver.bloquear(['forms.kycaid.com']);
+  await b.driver.bloquear(['forms.kycaid.com']);
+  a.fechar();
+  assert.equal(typeof session.webRequest.ouvinte, 'function');
+  b.fechar();
+  assert.equal(session.webRequest.ouvinte, null);
+});
+
+test('bloquear recusa hosts que não sejam nomes de host', async () => {
+  const { BrowserWindow } = electronFalso();
+  const j = criarJanela('lebull', { BrowserWindow });
+  await assert.rejects(j.driver.bloquear(['*', 'a/b']), /host inválido/);
 });

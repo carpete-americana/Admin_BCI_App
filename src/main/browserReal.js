@@ -104,6 +104,10 @@ const hostPermitido = (url, hosts) => {
   } catch (e) { return false; }
 };
 
+const hostDoPedido = (url) => {
+  try { return new URL(url).hostname; } catch (e) { return ''; }
+};
+
 const comLimite = (promessa, ms, motivo) => {
   let t;
   return Promise.race([promessa, new Promise((_, rejeitar) => { t = setTimeout(() => rejeitar(new Error(motivo)), ms); })]).finally(() => clearTimeout(t));
@@ -175,9 +179,11 @@ async function abrirBrowserReal(casino, deps, { hostsExtra = [] } = {}) {
   }
 
   let fechado = false;
+  let desfazerBloqueio = null;
   const fechar = async () => {
     if (fechado) return;
     fechado = true;
+    await desfazerBloqueio?.();
     try { await comLimite(browser.close(), FECHAR_MAX_MS, 'fechar'); } catch (e) {
       try { browser.process()?.kill(); } catch (e2) { /* já saiu */ }
     }
@@ -227,6 +233,21 @@ async function abrirBrowserReal(casino, deps, { hostsExtra = [] } = {}) {
         }
       },
       async url() { return principal.url(); },
+      // Só estes hosts são abortados e tudo o resto segue; a página é partilhada entre tarefas, por isso desfaz-se no fechar.
+      async bloquear(hosts) {
+        await desfazerBloqueio?.();
+        const decidir = (req) => {
+          const alvo = hostDoPedido(req.url());
+          return (hosts.some(h => alvo === h || alvo.endsWith(`.${h}`)) ? req.abort('blockedbyclient') : req.continue()).catch(() => {});
+        };
+        principal.on('request', decidir);
+        desfazerBloqueio = async () => {
+          desfazerBloqueio = null;
+          principal.off('request', decidir);
+          await principal.setRequestInterception(false).catch(() => {});
+        };
+        await principal.setRequestInterception(true);
+      },
       esperar,
       naPagina(nome, ...args) {
         return principal.mainFrame().evaluate(codigoDe(nome, args));
