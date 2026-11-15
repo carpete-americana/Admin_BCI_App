@@ -75,11 +75,12 @@
 
   const textoDe = (el) => (el.textContent || el.value || el.getAttribute('aria-label') || '').toLowerCase().trim();
 
-  // exato=true compara o texto inteiro: «sim» apanhava «Simulador».
-  function clicarPorTexto(textos, { exato = false, permissivo = true } = {}) {
+  // exato=true compara o texto inteiro: «sim» apanhava «Simulador». fora: seletor de onde nunca se clica.
+  function clicarPorTexto(textos, { exato = false, permissivo = true, fora = null } = {}) {
     const alvos = (textos || []).map(t => t.toLowerCase());
     const candidatos = document.querySelectorAll('button, a, [role="button"], [role="menuitem"], [onclick], input[type="button"], input[type="submit"]');
     for (const el of candidatos) {
+      if (fora && el.closest(fora)) continue;
       const texto = textoDe(el);
       if (!texto) continue;
       const bate = exato ? alvos.includes(texto) : alvos.some(t => texto.includes(t));
@@ -174,6 +175,13 @@
     let caixa = null;
     try { caixa = cfg?.contentor && document.querySelector(cfg.contentor); } catch (e) { return false; }
     if (!caixa) return false;
+    // A caixa real costuma estar escondida atrás de um desenho: conta o banner estar visível, não o input.
+    if (cfg.desmarcar?.length) {
+      if (!vistoPeloUtilizador(caixa)) return false;
+      const caixas = cfg.desmarcar.map(s => caixa.querySelector(s)).filter(Boolean);
+      for (const c of caixas) if (c.checked) c.click();
+      if (caixas.length !== cfg.desmarcar.length || caixas.some(c => c.checked)) return false;
+    }
     const alvos = (cfg.textos || []).map(semAcentos);
     for (const el of caixa.querySelectorAll('button, a, [role="button"]')) {
       if (alvos.includes(semAcentos(compacto(el.textContent))) && vistoPeloUtilizador(el)) { el.click(); return true; }
@@ -286,13 +294,16 @@
     return (cfg.textos || []).some(t => texto.includes(semAcentos(t))) ? { campos: campos.length } : null;
   }
 
+  // Caixa de um carácter: maxlength 1 ou, como na Betclic, só um pattern de uma classe ("[0-9]").
+  const umCaracter = (c) => Number(c.maxLength) === 1 || /^\[[^\]]+\]$/.test(c.getAttribute('pattern') || '');
+
   // Um dígito por campo quando o site parte o código em caixas de um carácter.
   function escreverCodigoTelemovel(cfg, codigo) {
     if (!pedidoDeCodigo(cfg)) return null;
     const campos = camposDoCodigoTelemovel(cfg);
     const texto = String(codigo || '');
     if (!texto) return false;
-    if (campos.length > 1 && campos.length >= texto.length && campos.every(c => Number(c.maxLength) === 1)) {
+    if (campos.length > 1 && campos.length >= texto.length && campos.every(umCaracter)) {
       return [...texto].every((d, i) => preencher(campos[i], d));
     }
     return preencher(campos[0], texto);
@@ -302,7 +313,8 @@
   function confirmarCodigoTelemovel(cfg) {
     const campos = camposDoCodigoTelemovel(cfg);
     if (!campos.length || !pedidoDeCodigo(cfg)) return null;
-    const caixa = campos[0].closest('form, [role="dialog"], [class*="modal" i]') || document.body;
+    // Com cfg.ecra só se procura o botão dentro do ecrã do código: o body tem botões de outras coisas.
+    const caixa = (cfg.ecra && campos[0].closest(cfg.ecra)) || campos[0].closest('form, [role="dialog"], [class*="modal" i]') || document.body;
     const ativo = (b) => b && !b.disabled && b.getAttribute('aria-disabled') !== 'true' && isVisible(b, { permissivo: true });
     for (const seletor of cfg.botao || []) {
       let botao = null;
@@ -411,8 +423,34 @@
     return Number.isFinite(n) ? n : null;
   }
 
-  // null sem saldo à vista.
+  // Texto dos nós de texto com um espaço entre eles: o textContent cola os números de blocos vizinhos.
+  const textoSeparado = (el) => {
+    const partes = [];
+    const passeio = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = passeio.nextNode(); n; n = passeio.nextNode()) partes.push(n.nodeValue);
+    return compacto(partes.join(' '));
+  };
+
+  // Pelo rótulo (LeBull, sem classes estáveis): o montante que acompanha o texto exato, até 4 níveis acima; só vale com um montante único.
+  function lerSaldoPorRotulo(rotulo) {
+    const alvo = semAcentos(rotulo);
+    for (const el of document.querySelectorAll('div, span, p, label')) {
+      if (semAcentos(compacto(el.textContent)) !== alvo || !vistoPeloUtilizador(el)) continue;
+      const proprio = compacto(el.textContent);
+      let pai = el.parentElement;
+      for (let i = 0; i < 4 && pai; i++, pai = pai.parentElement) {
+        const resto = textoSeparado(pai).replace(proprio, '');
+        if ((resto.match(/\d[\d.,]*/g) || []).length !== 1) continue;
+        const n = numeroEmEuros(resto);
+        if (n != null) return n;
+      }
+    }
+    return null;
+  }
+
+  // seletor CSS ou { rotulo }; null sem saldo à vista.
   function lerSaldo(seletor) {
+    if (seletor && typeof seletor === 'object') return lerSaldoPorRotulo(seletor.rotulo);
     for (const el of document.querySelectorAll(seletor)) {
       const n = numeroEmEuros(el.textContent);
       if (n != null) return n;
@@ -425,7 +463,10 @@
 
   // true quando o campo do montante já está no frame do caixa; null nos outros frames.
   function caixaPronto(cfg) {
-    return location.hostname === cfg.caixaHost && [].concat(cfg.montante || []).some(s => document.querySelector(s)) ? true : null;
+    if (location.hostname !== cfg.caixaHost) return null;
+    // Com contentor o montante só conta lá dentro: um input decimal solto (cupão) não é o caixa.
+    const raiz = cfg.contentor ? raizDoCaixa(cfg) : document;
+    return raiz && [].concat(cfg.montante || []).some(s => raiz.querySelector(s)) ? true : null;
   }
 
   // ok:false não é definitivo: o caixa valida o montante e redesenha o formulário depois de escolher o SEPA, e o motor volta a chamar.
@@ -433,14 +474,18 @@
     const montante = noCaixa(cfg);
     if (!montante) return null;
     const marca = cfg.metodoMarca;
+    const unico = cfg.metodoUnico;
     const el = document.querySelector(cfg.metodo);
-    const metodo = marca ? el : el?.closest('li');
-    if (!metodo) return { ok: false, motivo: marca ? 'O caixa não tem levantamento por transferência' : 'O caixa não tem levantamento por SEPA' };
-    if (!(marca ? metodo.querySelector(marca) : metodo.classList.contains('selected'))) {
+    const metodo = marca || unico ? el : el?.closest('li');
+    if (!metodo) return { ok: false, motivo: marca || unico ? 'O caixa não tem levantamento por transferência' : 'O caixa não tem levantamento por SEPA' };
+    // Método único: já é o escolhido e não é clicável, nunca se clica.
+    if (!unico && !(marca ? metodo.querySelector(marca) : metodo.classList.contains('selected'))) {
       metodo.click();
       return { ok: false, motivo: marca ? 'O caixa não ficou com a transferência escolhida' : 'O caixa não ficou com o SEPA escolhido' };
     }
-    const iban = marca
+    const iban = unico
+      ? document.querySelector(cfg.iban)
+      : marca
       ? metodo.querySelector(cfg.iban)
       : [...document.querySelectorAll(cfg.iban)].map(e => e.closest('li')).find(li => li?.classList.contains('selected'));
     if (!iban) return { ok: false, motivo: 'Sem IBAN escolhido no caixa' };
@@ -452,7 +497,7 @@
     const botao = botaoDoCaixa(cfg);
     if (!botao) return { ok: false, motivo: 'Sem botão de levantar' };
     // Na Betclic o IBAN vem mascarado com asteriscos: só contam os dígitos.
-    const fim = (iban.textContent || '').replace(marca ? /\D/g : /\s+/g, '').slice(-4);
+    const fim = (iban.textContent || '').replace(marca || unico ? /\D/g : /\s+/g, '').slice(-4);
     if (botao.disabled) return { ok: false, motivo: avisoDoCaixa() || `O botão Levantar não ativou com ${valor} €` };
     return { ok: true, iban: fim ? `…${fim}` : null, motivo: null };
   }
@@ -513,14 +558,24 @@
   const semAcentos = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const compacto = (t) => String(t || '').replace(/\s+/g, ' ').trim();
 
+  // Onde procurar no caixa: o contentor visível (modais partilham classes com o login) ou a página toda; null se o contentor não está à vista.
+  function raizDoCaixa(cfg) {
+    if (!cfg.contentor) return document;
+    let el = null;
+    try { el = document.querySelector(cfg.contentor); } catch (e) { /* seletor inválido */ }
+    return el && isVisible(el) ? el : null;
+  }
+
   // Montante do caixa: seletores do casino; os genéricos só no frame do caixa.
   function campoMontante(cfg) {
+    const raiz = raizDoCaixa(cfg);
+    if (!raiz) return null;
     const listas = [cfg.montante || []];
     if (location.hostname === cfg.caixaHost) listas.push(cfg.montanteGenerico || []);
     for (const lista of listas) {
       for (const seletor of lista) {
         let el = null;
-        try { el = [...document.querySelectorAll(seletor)].find(e => isVisible(e)); } catch (e) { /* seletor inválido */ }
+        try { el = [...raiz.querySelectorAll(seletor)].find(e => isVisible(e)); } catch (e) { /* seletor inválido */ }
         if (el) return el;
       }
     }
@@ -538,14 +593,16 @@
 
   // O item do método de pagamento: pelo logótipo do casino ou, em último caso, por um texto curto.
   function itemDoMetodo(cfg) {
+    const raiz = raizDoCaixa(cfg);
+    if (!raiz) return null;
     for (const seletor of cfg.metodo || []) {
       let el = null;
-      try { el = document.querySelector(seletor); } catch (e) { /* seletor inválido */ }
+      try { el = raiz.querySelector(seletor); } catch (e) { /* seletor inválido */ }
       if (el && cfg.metodoExato) return el;
       if (el) return el.closest('li, button, label, [role="radio"], [role="tab"], [role="button"]') || el;
     }
     const alvos = (cfg.metodoTexto || []).map(semAcentos);
-    for (const el of document.querySelectorAll('li, button, label, [role="radio"], [role="tab"], [role="button"]')) {
+    for (const el of raiz.querySelectorAll('li, button, label, [role="radio"], [role="tab"], [role="button"]')) {
       const t = semAcentos(compacto(el.textContent));
       if (t && t.length <= 60 && alvos.some(a => t.includes(a)) && vistoPeloUtilizador(el)) return el;
     }
@@ -555,9 +612,17 @@
   // Só se clica no método uma vez por frame.
   const METODO_CLICADO = '__bciMetodoClicado';
 
+  // Na LeBull o método escolhido só se distingue pelo h2 «Efetuar depósito com …».
+  function tituloDoMetodo(cfg) {
+    const raiz = raizDoCaixa(cfg);
+    const alvo = semAcentos(cfg.metodoTitulo);
+    return !!raiz && [...raiz.querySelectorAll('h2')].some(h => semAcentos(compacto(h.textContent)).includes(alvo) && vistoPeloUtilizador(h));
+  }
+
   // Na Betclic o MB WAY vem escolhido e o botão dele pede logo o pagamento no telemóvel da pessoa.
   function bloqueioDoDeposito(cfg, metodo, botao) {
     if (cfg.metodoMarca && !metodo?.querySelector(cfg.metodoMarca)) return 'O caixa ainda não escolheu o Multibanco';
+    if (cfg.metodoTitulo && !tituloDoMetodo(cfg)) return 'O caixa ainda não escolheu o Multibanco';
     const rotulos = (cfg.botaoRotulo || []).map(semAcentos);
     if (rotulos.length && !rotulos.some(r => semAcentos(textoDe(botao)).includes(r))) return 'O botão do caixa não é o de continuar';
     return null;
@@ -565,6 +630,7 @@
 
   // ok:false não é definitivo: o caixa redesenha o formulário depois de escolher o método e o motor volta a chamar.
   function prepararDeposito(cfg, valor) {
+    if (!raizDoCaixa(cfg)) return null;
     const montante = campoMontante(cfg);
     const metodo = itemDoMetodo(cfg);
     if (!montante && !metodo) return null;
@@ -572,13 +638,16 @@
     if (cfg.metodoMarca) {
       if (!metodo) return { ok: false, motivo: 'O caixa não tem depósito por Multibanco' };
       if (!metodo.querySelector(cfg.metodoMarca)) { metodo.click(); return { ok: false, motivo: 'O caixa ainda não escolheu o Multibanco' }; }
+    } else if (cfg.metodoTitulo) {
+      if (!metodo) return { ok: false, motivo: 'O caixa não tem depósito por Multibanco' };
+      if (!tituloDoMetodo(cfg)) { metodo.click(); return { ok: false, motivo: 'O caixa ainda não escolheu o Multibanco' }; }
     } else if (metodo && !globalThis[METODO_CLICADO]) {
       // Clica sempre, mesmo já escolhido: o caixa só monta o formulário do Multibanco depois do clique.
       globalThis[METODO_CLICADO] = true;
       metodo.click();
       return { ok: false, motivo: 'O caixa ainda não escolheu o Multibanco' };
     }
-    if (!cfg.metodoMarca && !metodo && !globalThis[METODO_CLICADO]) return { ok: false, motivo: 'O caixa não tem depósito por Multibanco' };
+    if (!cfg.metodoMarca && !cfg.metodoTitulo && !metodo && !globalThis[METODO_CLICADO]) return { ok: false, motivo: 'O caixa não tem depósito por Multibanco' };
     if (!montante) return { ok: false, motivo: 'O caixa não mostrou o campo do montante' };
     const texto = Number.isInteger(valor) ? String(valor) : Number(valor).toFixed(2);
     if (montante.value !== texto) preencher(montante, texto);
@@ -592,7 +661,7 @@
     return { ok: true, motivo: null };
   }
 
-  // cfg.botao: seletor ou lista deles; senão o botão visível pelo texto (cfg.botaoTexto).
+  // cfg.botao: seletor ou lista deles; senão o botão visível pelo texto (cfg.botaoTexto, exato com botaoExato, dentro de cfg.contentor).
   function botaoDoCaixa(cfg) {
     for (const seletor of [].concat(cfg.botao || [])) {
       let el = null;
@@ -600,8 +669,22 @@
       if (el) return el;
     }
     const alvos = (cfg.botaoTexto || []).map(semAcentos);
-    return [...document.querySelectorAll('button, input[type="submit"], [role="button"]')]
-      .find(b => alvos.some(a => semAcentos(textoDe(b)).includes(a)) && vistoPeloUtilizador(b)) || null;
+    const raiz = raizDoCaixa(cfg);
+    if (!raiz) return null;
+    const bate = (b, a) => cfg.botaoExato ? semAcentos(compacto(textoDe(b))) === a : semAcentos(textoDe(b)).includes(a);
+    return [...raiz.querySelectorAll('button, input[type="submit"], [role="button"]')]
+      .find(b => alvos.some(a => bate(b, a)) && vistoPeloUtilizador(b)) || null;
+  }
+
+  // Aviso no lugar do formulário (IBAN por validar, pedido pendente); null com o campo do montante ou sem aviso à vista.
+  function bloqueioDoLevantamento(cfg) {
+    if (location.hostname !== cfg.caixaHost || !cfg.avisos || document.querySelector(cfg.montante)) return null;
+    for (const el of document.querySelectorAll(cfg.avisos.seletor)) {
+      const texto = compacto(el.textContent);
+      if (!texto || !vistoPeloUtilizador(el)) continue;
+      return { pendente: (cfg.avisos.pendente || []).some(p => semAcentos(texto).includes(semAcentos(p))), texto: texto.slice(0, 160) };
+    }
+    return null;
   }
 
   const botaoDeDeposito = botaoDoCaixa;
@@ -618,13 +701,15 @@
   const eCampoDeTexto = (el) => el?.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|hidden)$/.test(el.type);
 
   function campoDoCodigo(cfg) {
+    const raiz = raizDoCaixa(cfg);
+    if (!raiz) return null;
     for (const seletor of cfg.codigo || []) {
       let el = null;
-      try { el = [...document.querySelectorAll(seletor)].find(e => eCampoDeTexto(e) && isVisible(e)); } catch (e) { /* seletor inválido */ }
+      try { el = [...raiz.querySelectorAll(seletor)].find(e => eCampoDeTexto(e) && isVisible(e)); } catch (e) { /* seletor inválido */ }
       if (el) return el;
     }
     const rotulos = (cfg.rotuloCodigo || []).map(semAcentos);
-    for (const label of document.querySelectorAll('label')) {
+    for (const label of raiz.querySelectorAll('label')) {
       const t = semAcentos(compacto(label.textContent));
       if (!t || t.length > 50 || !rotulos.some(r => t.includes(r))) continue;
       const campo = label.control || (label.htmlFor && document.getElementById(label.htmlFor)) || label.parentElement?.querySelector('input');
@@ -633,12 +718,26 @@
     return null;
   }
 
+  // Aviso fixo do caixa em vez do campo (conta sem direito a bónus); null sem aviso à vista.
+  function avisoSemBonus(cfg) {
+    const raiz = raizDoCaixa(cfg);
+    const alvos = (cfg.semBonus || []).map(semAcentos);
+    if (!raiz || !alvos.length) return null;
+    for (const el of raiz.querySelectorAll('h1, h2, h3, h4, p, span, div')) {
+      const t = compacto(el.textContent);
+      if (t && t.length <= 120 && alvos.some(a => semAcentos(t).includes(a)) && vistoPeloUtilizador(el)) return t;
+    }
+    return null;
+  }
+
   // Escreve o código promocional e carrega no «Aplicar» ao lado, se houver. null: este frame não tem o campo nem como o abrir.
   function aplicarCodigo(cfg, codigo) {
+    const semBonus = avisoSemBonus(cfg);
+    if (semBonus) return { ok: false, definitivo: true, motivo: semBonus };
     const campo = campoDoCodigo(cfg);
     if (!campo) {
       // O campo está atrás de «Tem um Código Promocional?»: marca-se uma vez (clicar outra vez desmarcava).
-      const caixaMarcar = cfg.abrirCodigoCaixa && document.querySelector(cfg.abrirCodigoCaixa);
+      const caixaMarcar = cfg.abrirCodigoCaixa && raizDoCaixa(cfg)?.querySelector(cfg.abrirCodigoCaixa);
       if (caixaMarcar) {
         if (caixaMarcar.checked) return { ok: false, motivo: 'O campo do código promocional não apareceu' };
         caixaMarcar.click();
@@ -646,7 +745,7 @@
       }
       // Sem a caixa conhecida: só rótulos (um texto solto apanharia «Promoções» no menu).
       const alvos = (cfg.abrirCodigo || []).map(semAcentos);
-      const abre = [...document.querySelectorAll('label')]
+      const abre = [...(raizDoCaixa(cfg) || document).querySelectorAll('label')]
         .find(el => { const t = semAcentos(compacto(el.textContent)); return t && t.length <= 60 && alvos.some(a => t.includes(a)) && vistoPeloUtilizador(el); });
       if (!abre) return null;
       abre.click();
@@ -677,7 +776,9 @@
   // O que o caixa diz sobre o código depois de aplicado; null sem recusa à vista.
   function erroDoCodigo(cfg) {
     const alvos = (cfg.textosErroCodigo || []).map(semAcentos);
-    for (const el of document.querySelectorAll('[role="alert"], [class*="error" i], [class*="invalid" i], [class*="message" i], [class*="warning" i], small, span, p')) {
+    const raiz = raizDoCaixa(cfg);
+    if (!raiz) return null;
+    for (const el of raiz.querySelectorAll('[role="alert"], [class*="error" i], [class*="invalid" i], [class*="message" i], [class*="warning" i], small, span, p')) {
       const t = compacto(el.textContent);
       if (!t || t.length > 200 || !vistoPeloUtilizador(el)) continue;
       if (alvos.some(a => semAcentos(t).includes(a))) return t.slice(0, 160);
@@ -763,7 +864,7 @@
   }
 
   globalThis.__bciPagina = {
-    abrirDetalhesPessoais, lerDetalhesPessoais, lerSaldo, caixaPronto, prepararLevantamento, confirmarLevantamento, resultadoLevantamento, fecharResultadoLevantamento, botaoDoCaixa,
+    abrirDetalhesPessoais, lerDetalhesPessoais, lerSaldo, caixaPronto, prepararLevantamento, confirmarLevantamento, resultadoLevantamento, fecharResultadoLevantamento, botaoDoCaixa, bloqueioDoLevantamento,
     prepararDeposito, confirmarDeposito, aplicarCodigo, erroDoCodigo, estadoDoCodigo, lerReferenciaMB, extrairReferenciaMB, validadeDeHoras, resultadoDeposito,
     isVisible, vistoPeloUtilizador, encontrarCampo, usernamePerto, preencher, clicarPorTexto, clicarEntrar,
     camposProntos, paginaHidratada, estadoLogin, estadoSessao, recusarCookies, fecharPopups, passosPosLogin, fecharAvisoDeSaida, captchaPendente, passoLogout, abrirMenuConta, clicarEscondidoPorTexto,

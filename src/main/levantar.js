@@ -34,7 +34,7 @@ function correrNaPagina(nome, ...args) {
   return f(...args);
 }
 
-const LIMITES = { saldo: 40, preparar: 60, resultado: 60, freebets: 40 };
+const LIMITES = { saldo: 40, preparar: 60, resultado: 60, freebets: 40, bonus: 8, avisos: 12 };
 
 /** Chave de casinos.js a partir do nome da conta («Placard» → placard); null se o nome não for exato. */
 function chaveDoNome(nome) {
@@ -141,6 +141,34 @@ async function levantarComEstado(driver, { casino, fluxo, credencial, parametros
     // Lote de ler saldos: sai sem abrir o formulário do levantamento.
     if (parametros?.lerSaldo) return { estado: 'ensaio', saldo: est.saldo, motivo: 'Saldo lido' };
 
+    const nome = C.CASINOS[casino].nome;
+    if (cfg.bonus) {
+      // Levantar a meio de um bónus pode cancelá-lo: sem o total lido não se levanta às cegas.
+      let total = null;
+      for (let i = 0; i < LIMITES.bonus && total == null; i++) {
+        total = await seguro(() => driver.naPagina('lerSaldo', cfg.bonus.total), null)
+          ?? await seguro(() => driver.naCaixa('lerSaldo', cfg.bonus.total), null);
+        if (total == null) await driver.esperar(250);
+      }
+      if (total == null) return falhada('saldo', 'Não foi possível ler o saldo total para ver se há bónus', { saldo: est.saldo });
+      if (Math.round(total * 100) > Math.round(est.saldo * 100)) {
+        return { estado: 'saltada', saldo: est.saldo, motivo: `A conta tem um bónus ativo na ${nome} (total ${total} €, real ${est.saldo} €)` };
+      }
+    }
+
+    if (cfg.avisos) {
+      // O aviso pode chegar antes do formulário: só é final se o formulário não aparecer em ~3 s.
+      let aviso = null;
+      for (let i = 0; i < LIMITES.avisos; i++) {
+        aviso = await seguro(() => driver.naCaixa('bloqueioDoLevantamento', cfg), null);
+        // O ecrã de sucesso antes do clique é um pendente: não se pede outro, nem que o formulário apareça depois.
+        if (aviso?.pendente) return { estado: 'saltada', saldo: est.saldo, motivo: `A ${nome} ainda tem um levantamento em processamento` };
+        if (!aviso && await seguro(() => driver.naCaixa('caixaPronto', cfg), null)) break;
+        await driver.esperar(250);
+      }
+      if (aviso) return falhada('conta', `Conta por verificar na ${nome}: ${aviso.texto}`, { saldo: est.saldo });
+    }
+
     const conta = valorDoLevantamento(parametros, est.saldo, est.freebets ?? 0);
     if (conta.saltar) return { estado: 'saltada', saldo: est.saldo, motivo: conta.saltar };
     est.valor = conta.valor;
@@ -150,8 +178,15 @@ async function levantarComEstado(driver, { casino, fluxo, credencial, parametros
     // Repete enquanto o caixa carrega ou valida; só o último motivo conta.
     let prep = null;
     for (let i = 0; i < LIMITES.preparar; i++) {
-      prep = await seguro(() => driver.naCaixa('prepararLevantamento', cfg, est.valor), null) ?? prep;
+      const volta = await seguro(() => driver.naCaixa('prepararLevantamento', cfg, est.valor), null);
+      prep = volta ?? prep;
       if (prep?.ok) break;
+      // Sem formulário o aviso pode ter chegado depois do ciclo dos avisos: pendente salta, bloqueio falha, nunca se clica.
+      if (!volta && cfg.avisos) {
+        const aviso = await seguro(() => driver.naCaixa('bloqueioDoLevantamento', cfg), null);
+        if (aviso?.pendente) return { estado: 'saltada', saldo: est.saldo, motivo: `A ${nome} ainda tem um levantamento em processamento` };
+        if (aviso) return falhada('conta', `Conta por verificar na ${nome}: ${aviso.texto}`, { saldo: est.saldo });
+      }
       await driver.esperar(250);
     }
     if (!prep) return falhada('caixa', 'O caixa não abriu', { saldo: est.saldo });
