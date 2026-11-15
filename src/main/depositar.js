@@ -96,7 +96,11 @@ async function depositarDaConta(driver, { casino, fluxo, credencial, parametros,
         if (aplicado?.ok || aplicado?.definitivo) break;
         await driver.esperar(250);
       }
-      if (!aplicado?.ok) return falhada('codigo', aplicado?.motivo || 'Não encontrei o campo do código promocional', extra);
+      if (!aplicado?.ok) {
+        // A recusa definitiva vem com o texto cru do site; o nome do casino acrescenta-se aqui.
+        const motivo = aplicado?.definitivo ? `A ${C.CASINOS[casino].nome} diz: ${aplicado.motivo}` : aplicado?.motivo;
+        return falhada('codigo', motivo || 'Não encontrei o campo do código promocional', extra);
+      }
       // O caixa valida o código passado um instante; uma recusa ignorada perdia o bónus sem ninguém ver.
       let validade = null;
       for (let i = 0; i < LIMITES.validarCodigo && validade !== 'valido'; i++) {

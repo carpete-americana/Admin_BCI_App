@@ -178,8 +178,15 @@ async function levantarComEstado(driver, { casino, fluxo, credencial, parametros
     // Repete enquanto o caixa carrega ou valida; só o último motivo conta.
     let prep = null;
     for (let i = 0; i < LIMITES.preparar; i++) {
-      prep = await seguro(() => driver.naCaixa('prepararLevantamento', cfg, est.valor), null) ?? prep;
+      const volta = await seguro(() => driver.naCaixa('prepararLevantamento', cfg, est.valor), null);
+      prep = volta ?? prep;
       if (prep?.ok) break;
+      // Sem formulário o aviso pode ter chegado depois do ciclo dos avisos: pendente salta, bloqueio falha, nunca se clica.
+      if (!volta && cfg.avisos) {
+        const aviso = await seguro(() => driver.naCaixa('bloqueioDoLevantamento', cfg), null);
+        if (aviso?.pendente) return { estado: 'saltada', saldo: est.saldo, motivo: `A ${nome} ainda tem um levantamento em processamento` };
+        if (aviso) return falhada('conta', `Conta por verificar na ${nome}: ${aviso.texto}`, { saldo: est.saldo });
+      }
       await driver.esperar(250);
     }
     if (!prep) return falhada('caixa', 'O caixa não abriu', { saldo: est.saldo });

@@ -529,12 +529,12 @@ test('lebull: lote de saldos numa conta com o aviso do IBAN devolve o saldo real
 test('lebull: aviso do IBAN → falhada «conta» com o texto do site', async () => {
   const d = cenarioLebull({ pagina: 'lebull-levantar-iban' });
   const r = await levantarDaConta(d, pedidoLebull());
-  assert.deepEqual([r.estado, r.fase, r.motivo], ['falhada', 'conta', 'Conta por verificar na Lebull: Por favor valide o seu IBAN em Verificação']);
+  assert.deepEqual([r.estado, r.fase, r.motivo], ['falhada', 'conta', 'Conta por verificar na LeBull: Por favor valide o seu IBAN em Verificação']);
   assert.ok(!d.nomes().includes('prepararLevantamento'));
   assert.equal(d.estado.cliquesLevantamento, 0);
 
   const email = await levantarDaConta(cenarioLebull({ pagina: 'lebull-levantar-email' }), pedidoLebull());
-  assert.deepEqual([email.fase, email.motivo], ['conta', 'Conta por verificar na Lebull: Por favor, verifica o teu email ou número de telefone.']);
+  assert.deepEqual([email.fase, email.motivo], ['conta', 'Conta por verificar na LeBull: Por favor, verifica o teu email ou número de telefone.']);
 });
 
 test('lebull: pendente → saltada e «Levantamento» nunca recebe clique, mesmo que o formulário apareça 1 s depois', async () => {
@@ -551,16 +551,34 @@ test('lebull: pendente → saltada e «Levantamento» nunca recebe clique, mesmo
     }
   });
   const r = await levantarDaConta(d, pedidoLebull());
-  assert.deepEqual([r.estado, r.saldo, r.motivo], ['saltada', 67.95, 'A Lebull ainda tem um levantamento em processamento']);
+  assert.deepEqual([r.estado, r.saldo, r.motivo], ['saltada', 67.95, 'A LeBull ainda tem um levantamento em processamento']);
   assert.equal(d.estado.cliquesLevantamento, 0);
   assert.ok(!d.nomes().includes('prepararLevantamento'));
+  assert.ok(!d.nomes().includes('confirmarLevantamento'));
+});
+
+test('lebull: o aviso de pendente que só chega depois do ciclo dos avisos também salta, sem clicar', async () => {
+  const d = cenarioLebull({
+    pagina: 'lebull-levantar-pendente',
+    // Sem aviso nem formulário durante o ciclo dos avisos; o aviso desenha-se na primeira tentativa de preparar.
+    preparar: (w) => w.document.querySelector('h3')?.remove(),
+    aoChamar: (nome, dr) => {
+      if (nome !== 'prepararLevantamento' || dr.caixa.document.querySelector('h3')) return;
+      dr.caixa.document.body.innerHTML = corpoDe('lebull-levantar-pendente');
+      dr.janela.document.body.innerHTML = corpoDe('lebull-levantar-pendente');
+    }
+  });
+  const r = await levantarDaConta(d, pedidoLebull());
+  assert.deepEqual([r.estado, r.saldo, r.motivo], ['saltada', 67.95, 'A LeBull ainda tem um levantamento em processamento']);
+  assert.ok(d.nomes().includes('prepararLevantamento'), 'passou pelo ciclo de preparar');
+  assert.equal(d.estado.cliquesLevantamento, 0);
   assert.ok(!d.nomes().includes('confirmarLevantamento'));
 });
 
 test('lebull: total 120 e real 100 → saltada com bónus ativo', async () => {
   const d = cenarioLebull({ pagina: 'lebull-levantar-bonus' });
   const r = await levantarDaConta(d, pedidoLebull());
-  assert.deepEqual([r.estado, r.saldo, r.motivo], ['saltada', 100, 'A conta tem um bónus ativo na Lebull (total 120 €, real 100 €)']);
+  assert.deepEqual([r.estado, r.saldo, r.motivo], ['saltada', 100, 'A conta tem um bónus ativo na LeBull (total 120 €, real 100 €)']);
   assert.ok(!d.nomes().includes('prepararLevantamento'));
   assert.equal(d.estado.cliquesLevantamento, 0);
 });

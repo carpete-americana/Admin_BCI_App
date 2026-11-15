@@ -463,7 +463,10 @@
 
   // true quando o campo do montante já está no frame do caixa; null nos outros frames.
   function caixaPronto(cfg) {
-    return location.hostname === cfg.caixaHost && [].concat(cfg.montante || []).some(s => document.querySelector(s)) ? true : null;
+    if (location.hostname !== cfg.caixaHost) return null;
+    // Com contentor o montante só conta lá dentro: um input decimal solto (cupão) não é o caixa.
+    const raiz = cfg.contentor ? raizDoCaixa(cfg) : document;
+    return raiz && [].concat(cfg.montante || []).some(s => raiz.querySelector(s)) ? true : null;
   }
 
   // ok:false não é definitivo: o caixa valida o montante e redesenha o formulário depois de escolher o SEPA, e o motor volta a chamar.
@@ -730,7 +733,7 @@
   // Escreve o código promocional e carrega no «Aplicar» ao lado, se houver. null: este frame não tem o campo nem como o abrir.
   function aplicarCodigo(cfg, codigo) {
     const semBonus = avisoSemBonus(cfg);
-    if (semBonus) return { ok: false, definitivo: true, motivo: `A LeBull diz: ${semBonus}` };
+    if (semBonus) return { ok: false, definitivo: true, motivo: semBonus };
     const campo = campoDoCodigo(cfg);
     if (!campo) {
       // O campo está atrás de «Tem um Código Promocional?»: marca-se uma vez (clicar outra vez desmarcava).

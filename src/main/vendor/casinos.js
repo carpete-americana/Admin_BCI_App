@@ -191,7 +191,7 @@
       }
     },
     lebull: {
-      nome: 'Lebull',
+      nome: 'LeBull',
       dominios: ['lebull.pt'],
       cor: '#ff6b00',
       logo: 'icons/casinos/lebull.png',

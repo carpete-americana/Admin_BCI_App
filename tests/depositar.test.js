@@ -564,7 +564,7 @@ test('lebull: «não elegível» com código → falhada «codigo» sem esperar 
   const d = cenarioLebull({ codigo: 'nao-elegivel' });
   const r = await depositarDaConta(d, pedidoLebull({}, { codigo: 'BEMVINDO' }));
   assert.deepEqual([r.estado, r.fase, r.codigo], ['falhada', 'codigo', 'BEMVINDO']);
-  assert.match(r.motivo, /não elegível para bónus/);
+  assert.match(r.motivo, /^A LeBull diz: .*não elegível para bónus/);
   assert.ok(conta(d, 'aplicarCodigo') < 10, `${conta(d, 'aplicarCodigo')} chamadas`);
   assert.equal(d.estado.cliquesModal, 0);
 });
