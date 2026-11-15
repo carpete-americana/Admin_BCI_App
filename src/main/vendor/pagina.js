@@ -677,14 +677,48 @@
   }
 
   // Aviso no lugar do formulário (IBAN por validar, pedido pendente); null com o campo do montante ou sem aviso à vista.
-  function bloqueioDoLevantamento(cfg) {
+  // Com um dos textosVerificacao traz fase 'verificacao-pedida'.
+  function bloqueioDoLevantamento(cfg, textosVerificacao) {
     if (location.hostname !== cfg.caixaHost || !cfg.avisos || document.querySelector(cfg.montante)) return null;
+    const tem = (texto, lista) => (lista || []).some(p => semAcentos(texto).includes(semAcentos(p)));
     for (const el of document.querySelectorAll(cfg.avisos.seletor)) {
       const texto = compacto(el.textContent);
       if (!texto || !vistoPeloUtilizador(el)) continue;
-      return { pendente: (cfg.avisos.pendente || []).some(p => semAcentos(texto).includes(semAcentos(p))), texto: texto.slice(0, 160) };
+      const r = { pendente: tem(texto, cfg.avisos.pendente), texto: texto.slice(0, 160) };
+      if (tem(texto, textosVerificacao)) r.fase = 'verificacao-pedida';
+      return r;
     }
     return null;
+  }
+
+  // O mesmo formato que a API aceita: o que não casa nunca é «precisa».
+  const LINK_VERIFICACAO = /^https:\/\/forms\.kycaid\.com\/[A-Za-z0-9]{20,64}$/;
+
+  /**
+   * Estado da verificação (KYC) sem abrir o formulário: ecrãs de cfg.ecras primeiro, depois o src do iframe.
+   * { estado: 'precisa', link } | { estado: 'feita'|'em-analise'|'recusada', motivo? } | { estado: null }; o ecrã expirado só junta expirado: true.
+   */
+  function lerVerificacao(cfg) {
+    const ecras = cfg.ecras || {};
+    const visto = (e) => {
+      if (!e?.seletor) return null;
+      let els = [];
+      try { els = document.querySelectorAll(e.seletor); } catch (err) { return null; }
+      for (const el of els) {
+        const texto = compacto(el.textContent);
+        if (texto && vistoPeloUtilizador(el) && (e.textos || []).some(t => semAcentos(texto).includes(semAcentos(t)))) return texto.slice(0, 160);
+      }
+      return null;
+    };
+    for (const estado of ['feita', 'em-analise', 'recusada']) {
+      const texto = visto(ecras[estado]);
+      if (texto) return estado === 'recusada' ? { estado, motivo: texto } : { estado };
+    }
+    const expirado = visto(ecras.expirado) ? { expirado: true } : {};
+    let iframe = null;
+    try { iframe = document.querySelector(cfg.iframe); } catch (e) { /* seletor inválido */ }
+    const link = iframe?.getAttribute('src') || '';
+    return LINK_VERIFICACAO.test(link) ? { estado: 'precisa', link, ...expirado } : { estado: null, ...expirado };
   }
 
   const botaoDeDeposito = botaoDoCaixa;
@@ -864,7 +898,7 @@
   }
 
   globalThis.__bciPagina = {
-    abrirDetalhesPessoais, lerDetalhesPessoais, lerSaldo, caixaPronto, prepararLevantamento, confirmarLevantamento, resultadoLevantamento, fecharResultadoLevantamento, botaoDoCaixa, bloqueioDoLevantamento,
+    abrirDetalhesPessoais, lerDetalhesPessoais, lerSaldo, caixaPronto, prepararLevantamento, confirmarLevantamento, resultadoLevantamento, fecharResultadoLevantamento, botaoDoCaixa, bloqueioDoLevantamento, lerVerificacao,
     prepararDeposito, confirmarDeposito, aplicarCodigo, erroDoCodigo, estadoDoCodigo, lerReferenciaMB, extrairReferenciaMB, validadeDeHoras, resultadoDeposito,
     isVisible, vistoPeloUtilizador, encontrarCampo, usernamePerto, preencher, clicarPorTexto, clicarEntrar,
     camposProntos, paginaHidratada, estadoLogin, estadoSessao, recusarCookies, fecharPopups, passosPosLogin, fecharAvisoDeSaida, captchaPendente, passoLogout, abrirMenuConta, clicarEscondidoPorTexto,

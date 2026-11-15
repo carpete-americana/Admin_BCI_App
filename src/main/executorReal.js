@@ -9,6 +9,7 @@ const { decifrarEntrega, decifrarNascimento } = require('./entregaCifra');
 const { chaveDoNome } = require('./levantar');
 const { hostsExtraDe } = require('./depositar');
 const { sair: sairDoCasino } = require('./sessaoCasino');
+const { verificarConta } = require('./verificacao');
 
 // Cabe o login, dois pedidos de código ao dono da conta (5 min cada) e o caixa.
 const TEMPO_MAX_REAL_MS = 20 * 60 * 1000;
@@ -34,6 +35,11 @@ function resultadoDe(r, tipo) {
     const { entidade, referencia, validade, codigo, motivo, fase } = r || {};
     return { estado, resultado: { valor: r?.valor, entidade, referencia, validade, codigo, motivo, fase } };
   }
+  // Só a leitura da verificação leva o link; a API cifra-o e não o guarda no resultado.
+  if (tipo === 'verificacao') {
+    const { verificacao, link, expirado, motivo, fase } = r || {};
+    return { estado, resultado: { verificacao, link, expirado, motivo, fase } };
+  }
   const resultado = { saldo: r?.saldo, freebets: r?.freebets, valor: r?.valor, ibanFim: ibanFim(r?.iban), motivo: r?.motivo, fase: r?.fase };
   if (estado === 'feita' && r?.motivo) resultado.textoCaixa = r.motivo;
   return { estado, resultado };
@@ -44,7 +50,7 @@ function resultadoDe(r, tipo) {
  * e diz se é para parar (consentimento retirado ou um admin) ou se a app está a fechar.
  * Devolve (tarefa, io, ctx) => Promise<void>, com a forma do executor fictício.
  */
-function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, sair = sairDoCasino, setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout }) {
+function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, verificar = verificarConta, sair = sairDoCasino, setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout }) {
   return async function executar(tarefa, io, ctx) {
     const id = Number(tarefa.tarefaId);
     await io.iniciar(150);
@@ -55,7 +61,9 @@ function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, sair =
     // Tarefas da fase 3 podem não ter tipo: são levantamentos.
     const tipo = tarefa.tipo ?? 'levantar';
     if (tipo !== 'depositar' && tipo !== 'levantar') return io.concluir('falhada', { fase: 'tipo', motivo: 'Tipo de tarefa desconhecido' });
-    const motorDoTipo = tipo === 'depositar' ? depositar : levantar;
+    // A leitura da verificação é um levantamento de ensaio com parametros.verificacao (o tipo da tarefa não muda).
+    const leVerificacao = tipo === 'levantar' && tarefa.parametros?.verificacao === true;
+    const motorDoTipo = tipo === 'depositar' ? depositar : leVerificacao ? verificar : levantar;
 
     if (ctx.deveParar?.() === true) return io.concluir('falhada', { fase: 'parado', motivo: 'Mandaram parar antes de começar' });
 
@@ -143,7 +151,7 @@ function criarExecutorReal({ api, raiz, criarJanela, levantar, depositar, sair =
       await janela?.fechar();
     }
 
-    const { estado, resultado } = resultadoDe(r, tipo);
+    const { estado, resultado } = resultadoDe(r, leVerificacao ? 'verificacao' : tipo);
     return io.concluir(estado, resultado);
   };
 }

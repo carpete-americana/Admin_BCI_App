@@ -42,6 +42,17 @@ const eHttps = (url) => {
 const codigoDe = (nome, args) =>
   `${lerPagina()};\n${SCRIPT_LEVANTAR};\n(${correrNaPagina})(...${JSON.stringify([nome, ...args])})`;
 
+// Por sessão (partilhada pelas janelas do casino) e só um ouvinte: o Electron guarda um onBeforeRequest por sessão.
+const bloqueiosPorSessao = new WeakMap();
+const HOST_VALIDO = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/i;
+
+function aplicarBloqueios(ses) {
+  const hosts = [...new Set([...bloqueiosPorSessao.get(ses) || []].flat())];
+  if (!hosts.length) { ses.webRequest.onBeforeRequest(null); return; }
+  const urls = hosts.flatMap(h => [`*://${h}/*`, `*://*.${h}/*`]);
+  ses.webRequest.onBeforeRequest({ urls }, (detalhes, resposta) => resposta({ cancel: true }));
+}
+
 const bloquear = (event, url) => { if (!eHttps(url)) event.preventDefault(); };
 
 /** Sem som, user agent do Chrome e só https; as janelas novas ficam a cargo de quem chama. */
@@ -92,7 +103,19 @@ function criarJanela(casino, deps, { hostsExtra = [] } = {}) {
     filha.once('closed', () => { const i = filhas.indexOf(filha); if (i >= 0) filhas.splice(i, 1); });
   });
 
+  let meusHosts = null;
   const driver = {
+    // Cancela estes hosts na sessão do casino sem a página os chegar a pedir; o fechar() retira-os.
+    async bloquear(hosts) {
+      if (!Array.isArray(hosts) || !hosts.every(h => typeof h === 'string' && HOST_VALIDO.test(h))) throw new Error('host inválido');
+      const ses = wc.session;
+      const lista = bloqueiosPorSessao.get(ses) || new Set();
+      if (meusHosts) lista.delete(meusHosts);
+      meusHosts = [...hosts];
+      lista.add(meusHosts);
+      bloqueiosPorSessao.set(ses, lista);
+      aplicarBloqueios(ses);
+    },
     async navegar(url) {
       if (!eHttps(url)) throw new Error('só https');
       let temporizador;
@@ -150,6 +173,13 @@ function criarJanela(casino, deps, { hostsExtra = [] } = {}) {
   return {
     driver,
     fechar() {
+      if (meusHosts) {
+        const ses = wc.session;
+        const lista = bloqueiosPorSessao.get(ses);
+        lista?.delete(meusHosts);
+        meusHosts = null;
+        try { aplicarBloqueios(ses); } catch (e) { /* sessão já destruída */ }
+      }
       for (const filha of [...filhas]) {
         try { if (!filha.isDestroyed()) filha.destroy(); } catch (e) { /* já fechada */ }
       }

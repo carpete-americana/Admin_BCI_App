@@ -526,10 +526,10 @@ test('lebull: lote de saldos numa conta com o aviso do IBAN devolve o saldo real
   assert.ok(!d.nomes().includes('prepararLevantamento'));
 });
 
-test('lebull: aviso do IBAN → falhada «conta» com o texto do site', async () => {
+test('lebull: aviso do IBAN → falhada «verificacao-pedida» com o texto do site; outros avisos → «conta»', async () => {
   const d = cenarioLebull({ pagina: 'lebull-levantar-iban' });
   const r = await levantarDaConta(d, pedidoLebull());
-  assert.deepEqual([r.estado, r.fase, r.motivo], ['falhada', 'conta', 'Conta por verificar na LeBull: Por favor valide o seu IBAN em Verificação']);
+  assert.deepEqual([r.estado, r.fase, r.motivo], ['falhada', 'verificacao-pedida', 'Conta por verificar na LeBull: Por favor valide o seu IBAN em Verificação']);
   assert.ok(!d.nomes().includes('prepararLevantamento'));
   assert.equal(d.estado.cliquesLevantamento, 0);
 

@@ -105,6 +105,10 @@ function puppeteerFalso({ gotoErro } = {}) {
       createCDPSession: async () => ({ on() {}, send: async (m, a) => { estado.cdp.push([m, a]); } }),
       mainFrame: () => ({ evaluate: async () => 'principal' }),
       frames: () => [],
+      interceptar: false, pedidos: [],
+      setRequestInterception: async (v) => { p.interceptar = v; },
+      on: (ev, f) => { if (ev === 'request') p.pedidos.push(f); },
+      off: (ev, f) => { const i = p.pedidos.indexOf(f); if (i >= 0) p.pedidos.splice(i, 1); },
       resposta: null
     };
     estado.paginas.push(p);
@@ -267,4 +271,47 @@ test('limparPerfis apaga só as pastas op-casa-*', async () => {
     assert.deepEqual(fs.readdirSync(pasta).sort(), ['Cache', 'op-3']);
     assert.equal(await limparPerfis(path.join(pasta, 'nao-existe')), 0);
   } finally { fs.rmSync(pasta, { recursive: true, force: true }); }
+});
+
+// Um pedido falso: regista se foi abortado ou deixado seguir.
+const pedido = (url) => { const r = { url: () => url, decisao: null, abort: async () => { r.decisao = 'abort'; }, continue: async () => { r.decisao = 'continue'; } }; return r; };
+
+test('bloquear aborta só os pedidos aos hosts dados (e subdomínios) e deixa seguir os outros', async () => {
+  const f = puppeteerFalso();
+  const { driver } = await abrir(f);
+  await driver.bloquear(['forms.kycaid.com']);
+  assert.equal(f.principal.interceptar, true);
+  const r = {};
+  for (const u of ['https://forms.kycaid.com/abc', 'https://x.forms.kycaid.com/abc', 'https://www.lebull.pt/x', 'https://forms.kycaid.com.evil.pt/', 'https://evil.pt/?u=forms.kycaid.com']) {
+    r[u] = pedido(u);
+    for (const h of f.principal.pedidos) await h(r[u]);
+  }
+  assert.deepEqual(Object.values(r).map(x => x.decisao), ['abort', 'abort', 'continue', 'continue', 'continue']);
+});
+
+test('bloquear duas vezes não empilha ouvintes, e o fechar desfaz o bloqueio', async () => {
+  const f = puppeteerFalso();
+  const { driver, fechar } = await abrir(f);
+  await driver.bloquear(['forms.kycaid.com']);
+  await driver.bloquear(['forms.kycaid.com']);
+  assert.equal(f.principal.pedidos.length, 1);
+  await fechar();
+  assert.equal(f.principal.pedidos.length, 0);
+  assert.equal(f.principal.interceptar, false);
+});
+
+test('fechar fecha o browser mesmo que desfazer o bloqueio fique preso', async (t) => {
+  const f = puppeteerFalso();
+  const { driver, fechar } = await abrir(f);
+  await driver.bloquear(['forms.kycaid.com']);
+  f.principal.setRequestInterception = () => new Promise(() => {});
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let acabou = false;
+  const fim = fechar().then(() => { acabou = true; });
+  for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r));
+  t.mock.timers.tick(10 * 1000);
+  for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r));
+  assert.equal(acabou, true);
+  await fim;
+  assert.equal(f.estado.fechou, 1);
 });
