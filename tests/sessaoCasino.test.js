@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { entrar, sair, seguro, falhada, verificar, LIMITES_LOGIN } = require('../src/main/sessaoCasino');
-const { criarDriver } = require('./ajuda/paginaJsdom');
+const { criarDriver, fixture } = require('./ajuda/paginaJsdom');
 
 const SENHA = 'segredo-9X!';
 const CREDENCIAL = { username: 'joao', password: SENHA };
@@ -415,4 +415,80 @@ test('Betclic: ecrã do código numa tarefa sem forma de o pedir: falhada', asyn
   const b = betclic(['codigo', 'inicio']);
   const r = await entrar(b.d, 'betclic', null, COM_NASCIMENTO);
   assert.equal(r.fase, 'codigo-telemovel');
+});
+
+// ---------- LeBull ----------
+
+const LB_LOGIN = 'https://www.lebull.pt/#login';
+// O «Terminar sessão» fica sempre no DOM, num painel fechado: sem sessão não pode contar.
+const PAINEL_FECHADO = '<div style="opacity: 0; transform: translateX(320px);"><button>Terminar sessão</button></div>';
+
+test('sessaoCasino: lebull com sessão expirada (sem «Saldo») entra sem tentar logout', async () => {
+  let dentro = false;
+  const d = criarDriver({
+    paginas: {
+      [LB_LOGIN]: () => (dentro
+        ? { fixture: 'lebull-com-sessao' }
+        : { fixture: 'lebull-login', preparar: (w) => w.document.body.insertAdjacentHTML('beforeend', PAINEL_FECHADO) })
+    },
+    aoChamar: (nome, dr) => { if (nome === 'clicarEntrar' && !dentro) { dentro = true; dr.abrir(LB_LOGIN); } }
+  });
+  assert.equal(await entrar(d, 'lebull', null, CREDENCIAL), null);
+  const n = d.nomes();
+  assert.ok(!n.includes('passoLogout'));
+  assert.equal(n.filter(x => x === 'preencherLogin').length, 1);
+});
+
+test('sessaoCasino: lebull com sessão clica «Terminar sessão» e só segue quando «Saldo» desaparece', async () => {
+  // com → a-sair (o «Saldo» ainda lá durante três leituras) → sem → dentro.
+  let estado = 'com';
+  let leituras = 0;
+  let trocouEm = null;
+  const d = criarDriver({
+    paginas: { [LB_LOGIN]: () => ({ fixture: estado === 'sem' ? 'lebull-login' : 'lebull-com-sessao' }) },
+    aoChamar: (nome, dr) => {
+      if (nome === 'passoLogout' && estado === 'com' && dr.chamadas.at(-1).args[1] === 'logout') estado = 'a-sair';
+      if (nome === 'estadoSessao' && estado === 'a-sair' && ++leituras === 3) { estado = 'sem'; trocouEm = dr.chamadas.length; dr.abrir(LB_LOGIN); }
+      if (nome === 'clicarEntrar' && estado === 'sem') { estado = 'dentro'; dr.abrir(LB_LOGIN); }
+    }
+  });
+  assert.equal(await entrar(d, 'lebull', null, CREDENCIAL), null);
+  const n = d.nomes();
+  assert.ok(n.includes('passoLogout'));
+  assert.ok(trocouEm != null, 'o «Saldo» desapareceu');
+  assert.ok(n.indexOf('preencherLogin') >= trocouEm, 'só preenche depois de o «Saldo» desaparecer');
+  assert.equal(n.filter(x => x === 'preencherLogin').length, 1);
+});
+
+test('sessaoCasino: lebull com o banner de cookies à frente do login desmarca as três, aceita e só depois preenche', async () => {
+  const html = fixture('lebull-login');
+  const modalLogin = html.slice(html.indexOf('<div class="ModalContainer login-modal'), html.lastIndexOf('</body>'));
+  const estado = { desmarcadas: null, aceites: 0, preencheuDepoisDoBanner: false };
+  let dentro = false;
+  const d = criarDriver({
+    paginas: {
+      [LB_LOGIN]: () => (dentro
+        ? { fixture: 'lebull-com-sessao' }
+        : {
+          fixture: 'lebull-cookies',
+          preparar: (w) => {
+            const banner = w.document.querySelector('.ModalContainer');
+            banner.querySelector('button').addEventListener('click', () => {
+              estado.aceites++;
+              estado.desmarcadas = [...banner.querySelectorAll('input[type="checkbox"]')].every(i => !i.checked);
+              banner.remove();
+            });
+            w.document.body.insertAdjacentHTML('beforeend', modalLogin);
+          }
+        })
+    },
+    aoChamar: (nome, dr) => {
+      if (nome === 'preencherLogin') estado.preencheuDepoisDoBanner = estado.aceites === 1;
+      if (nome === 'clicarEntrar' && !dentro) { dentro = true; dr.abrir(LB_LOGIN); }
+    }
+  });
+  assert.equal(await entrar(d, 'lebull', null, CREDENCIAL), null);
+  assert.equal(estado.aceites, 1);
+  assert.equal(estado.desmarcadas, true, 'as três caixas desmarcadas antes do clique');
+  assert.ok(estado.preencheuDepoisDoBanner, 'o login só se preenche depois de o banner sair');
 });

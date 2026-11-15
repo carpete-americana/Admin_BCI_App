@@ -478,3 +478,148 @@ test('betclic: código por SMS depois de Levantar que não chega: verificar, nun
   assert.equal(r.fase, 'codigo-telemovel');
   assert.match(r.motivo, /vê no casino/);
 });
+
+// ---------- LeBull ----------
+
+const LB_LOGIN = 'https://www.lebull.pt/#login';
+const LB_LEVANTAR = 'https://www.lebull.pt/profile/wallet/withdrawal';
+const LB_IBAN = 'PT50000000000000000001234';
+const corpoDe = (nome) => fixture(nome).match(/<body>([^]*)<\/body>/)[1];
+
+/**
+ * O caixa da LeBull está na própria página: a janela e o caixa do driver começam com a mesma fixture (`pagina`).
+ * resposta: a fixture que o clique em «Levantamento» mostra (null: nada muda). preparar corre nas duas.
+ */
+function cenarioLebull({ pagina = 'lebull-levantar', resposta = 'lebull-levantar-pendente', preparar, aoChamar, ...resto } = {}) {
+  let dentro = false;
+  const estado = { cliquesLevantamento: 0 };
+  const preparaCaixa = (w) => {
+    preparar?.(w);
+    w.document.addEventListener('click', (e) => {
+      if (e.target.closest?.('button')?.textContent.trim() !== 'Levantamento') return;
+      estado.cliquesLevantamento++;
+      if (resposta) w.document.body.innerHTML = corpoDe(resposta);
+    });
+  };
+  const d = criarDriver({
+    paginas: {
+      [LB_LOGIN]: () => ({ fixture: dentro ? 'lebull-com-sessao' : 'lebull-login' }),
+      [LB_LEVANTAR]: { fixture: pagina, preparar, caixa: fixture(pagina), caixaUrl: LB_LEVANTAR, preparaCaixa }
+    },
+    aoChamar: (nome, dr) => {
+      if (nome === 'clicarEntrar' && !dentro) { dentro = true; dr.abrir(LB_LOGIN); }
+      aoChamar?.(nome, dr);
+    },
+    ...resto
+  });
+  return Object.assign(d, { estado });
+}
+const pedidoLebull = (extra = {}) => pedido({ casino: 'lebull', ...extra });
+const semSaldoTotal = (w) => {
+  for (const el of w.document.querySelectorAll('div')) if (el.textContent.trim() === 'Saldo total') el.parentElement.remove();
+};
+
+test('lebull: lote de saldos numa conta com o aviso do IBAN devolve o saldo real', async () => {
+  const d = cenarioLebull({ pagina: 'lebull-levantar-iban' });
+  const r = await levantarDaConta(d, pedidoLebull({ parametros: { ...PARAMETROS, lerSaldo: true } }));
+  assert.deepEqual([r.estado, r.saldo], ['ensaio', 67.95]);
+  assert.ok(!d.nomes().includes('prepararLevantamento'));
+});
+
+test('lebull: aviso do IBAN → falhada «conta» com o texto do site', async () => {
+  const d = cenarioLebull({ pagina: 'lebull-levantar-iban' });
+  const r = await levantarDaConta(d, pedidoLebull());
+  assert.deepEqual([r.estado, r.fase, r.motivo], ['falhada', 'conta', 'Conta por verificar na LeBull: Por favor valide o seu IBAN em Verificação']);
+  assert.ok(!d.nomes().includes('prepararLevantamento'));
+  assert.equal(d.estado.cliquesLevantamento, 0);
+
+  const email = await levantarDaConta(cenarioLebull({ pagina: 'lebull-levantar-email' }), pedidoLebull());
+  assert.deepEqual([email.fase, email.motivo], ['conta', 'Conta por verificar na LeBull: Por favor, verifica o teu email ou número de telefone.']);
+});
+
+test('lebull: pendente → saltada e «Levantamento» nunca recebe clique, mesmo que o formulário apareça 1 s depois', async () => {
+  let desde = null;
+  const d = cenarioLebull({
+    pagina: 'lebull-levantar-pendente',
+    aoChamar: (nome, dr) => {
+      if (nome === 'bloqueioDoLevantamento' && desde == null) desde = dr.esperas;
+      // Quatro voltas de 250 ms depois do primeiro aviso, o site desenha o formulário.
+      if (desde != null && dr.esperas >= desde + 4 && !dr.caixa.document.querySelector('input[inputmode="decimal"]')) {
+        dr.caixa.document.body.innerHTML = corpoDe('lebull-levantar');
+        dr.janela.document.body.innerHTML = corpoDe('lebull-levantar');
+      }
+    }
+  });
+  const r = await levantarDaConta(d, pedidoLebull());
+  assert.deepEqual([r.estado, r.saldo, r.motivo], ['saltada', 67.95, 'A LeBull ainda tem um levantamento em processamento']);
+  assert.equal(d.estado.cliquesLevantamento, 0);
+  assert.ok(!d.nomes().includes('prepararLevantamento'));
+  assert.ok(!d.nomes().includes('confirmarLevantamento'));
+});
+
+test('lebull: o aviso de pendente que só chega depois do ciclo dos avisos também salta, sem clicar', async () => {
+  const d = cenarioLebull({
+    pagina: 'lebull-levantar-pendente',
+    // Sem aviso nem formulário durante o ciclo dos avisos; o aviso desenha-se na primeira tentativa de preparar.
+    preparar: (w) => w.document.querySelector('h3')?.remove(),
+    aoChamar: (nome, dr) => {
+      if (nome !== 'prepararLevantamento' || dr.caixa.document.querySelector('h3')) return;
+      dr.caixa.document.body.innerHTML = corpoDe('lebull-levantar-pendente');
+      dr.janela.document.body.innerHTML = corpoDe('lebull-levantar-pendente');
+    }
+  });
+  const r = await levantarDaConta(d, pedidoLebull());
+  assert.deepEqual([r.estado, r.saldo, r.motivo], ['saltada', 67.95, 'A LeBull ainda tem um levantamento em processamento']);
+  assert.ok(d.nomes().includes('prepararLevantamento'), 'passou pelo ciclo de preparar');
+  assert.equal(d.estado.cliquesLevantamento, 0);
+  assert.ok(!d.nomes().includes('confirmarLevantamento'));
+});
+
+test('lebull: total 120 e real 100 → saltada com bónus ativo', async () => {
+  const d = cenarioLebull({ pagina: 'lebull-levantar-bonus' });
+  const r = await levantarDaConta(d, pedidoLebull());
+  assert.deepEqual([r.estado, r.saldo, r.motivo], ['saltada', 100, 'A conta tem um bónus ativo na LeBull (total 120 €, real 100 €)']);
+  assert.ok(!d.nomes().includes('prepararLevantamento'));
+  assert.equal(d.estado.cliquesLevantamento, 0);
+});
+
+test('lebull: total ilegível → falhada «saldo»', async () => {
+  const d = cenarioLebull({ preparar: semSaldoTotal });
+  const r = await levantarDaConta(d, pedidoLebull());
+  assert.deepEqual([r.estado, r.fase, r.motivo, r.saldo], ['falhada', 'saldo', 'Não foi possível ler o saldo total para ver se há bónus', 67.95]);
+  assert.ok(!d.nomes().includes('prepararLevantamento'));
+});
+
+test('lebull: o ensaio pára antes de Levantamento, com iban …NNNN', async () => {
+  const d = cenarioLebull();
+  const r = await levantarDaConta(d, pedidoLebull({ ensaio: true }));
+  assert.deepEqual([r.estado, r.saldo, r.valor, r.iban], ['ensaio', 67.95, 20, '…1234']);
+  assert.ok(!d.nomes().includes('confirmarLevantamento'));
+  assert.equal(d.estado.cliquesLevantamento, 0);
+  assert.equal(d.caixa.document.querySelector('.withdrawal-page input[inputmode="decimal"]').value, '20');
+});
+
+test('lebull: real → feita com «efectuado com sucesso»', async () => {
+  const d = cenarioLebull();
+  const r = await levantarDaConta(d, pedidoLebull());
+  assert.deepEqual([r.estado, r.valor, r.iban], ['feita', 20, '…1234']);
+  assert.match(r.motivo, /efectuado com sucesso/);
+  assert.equal(d.estado.cliquesLevantamento, 1);
+});
+
+test('lebull: o IBAN da fixture não aparece no resultado nem nos argumentos de aoPasso', async () => {
+  for (const extra of [{}, { ensaio: true }]) {
+    const passos = [];
+    const r = await levantarDaConta(cenarioLebull(), pedidoLebull(extra), (...args) => passos.push(args));
+    const tudo = JSON.stringify({ r, passos });
+    assert.ok(passos.length > 0);
+    assert.ok(!tudo.includes(LB_IBAN) && !tudo.includes(LB_IBAN.replace(/\D/g, '')), tudo);
+  }
+});
+
+test('lebull: sem resposta depois do clique → verificar', async () => {
+  const d = cenarioLebull({ resposta: null });
+  const r = await levantarDaConta(d, pedidoLebull());
+  assert.deepEqual([r.estado, r.fase], ['verificar', 'resultado']);
+  assert.equal(d.estado.cliquesLevantamento, 1);
+});

@@ -36,11 +36,15 @@ function hostsExtraDe(casino, tipo = 'depositar') {
   return [...new Set(hosts)].filter((h, _i, todos) => !todos.some(o => o !== h && h.endsWith(`.${o}`)));
 }
 
+// AAAA-MM-DD no fuso do PC, como o validadeDeHoras da página.
+const diaLocal = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 /**
  * Uma conta. Pede a referência Multibanco; quem a paga é uma pessoa, depois.
  * Depois de carregar em Depositar qualquer dúvida é `verificar` (pode haver uma referência gerada); antes é `falhada`.
+ * `agora` (relógio) só os testes o passam.
  */
-async function depositarDaConta(driver, { casino, fluxo, credencial, parametros, ensaio, deveParar, pedirCodigo }, aoPasso) {
+async function depositarDaConta(driver, { casino, fluxo, credencial, parametros, ensaio, deveParar, pedirCodigo, agora = () => new Date() }, aoPasso) {
   const cfg = C.CASINOS[casino]?.depositar;
   if (!cfg) return falhada('casino', 'Este casino não tem depósito automático');
   const conta = valorDoDeposito(parametros);
@@ -88,10 +92,15 @@ async function depositarDaConta(driver, { casino, fluxo, credencial, parametros,
       let aplicado = null;
       for (let i = 0; i < LIMITES.codigo; i++) {
         aplicado = await seguro(() => driver.naCaixa('aplicarCodigo', cfg, codigo), null) ?? aplicado;
-        if (aplicado?.ok) break;
+        // Recusa fixa do caixa (conta sem bónus): esperar não a muda.
+        if (aplicado?.ok || aplicado?.definitivo) break;
         await driver.esperar(250);
       }
-      if (!aplicado?.ok) return falhada('codigo', aplicado?.motivo || 'Não encontrei o campo do código promocional', extra);
+      if (!aplicado?.ok) {
+        // A recusa definitiva vem com o texto cru do site; o nome do casino acrescenta-se aqui.
+        const motivo = aplicado?.definitivo ? `A ${C.CASINOS[casino].nome} diz: ${aplicado.motivo}` : aplicado?.motivo;
+        return falhada('codigo', motivo || 'Não encontrei o campo do código promocional', extra);
+      }
       // O caixa valida o código passado um instante; uma recusa ignorada perdia o bónus sem ninguém ver.
       let validade = null;
       for (let i = 0; i < LIMITES.validarCodigo && validade !== 'valido'; i++) {
@@ -128,9 +137,11 @@ async function depositarDaConta(driver, { casino, fluxo, credencial, parametros,
       const ref = r?.estado === 'referencia' ? r : await seguro(() => driver.naJanelasNovas('lerReferenciaMB'), null);
       if (ref?.entidade && ref?.referencia) {
         const referencia = String(ref.referencia).replace(/[\s.]/g, '');
+        // A página da LeBull só tem um contador: a validade é o dia em que ele acaba.
+        const validade = ref.validade || (cfg.validadeMinutos ? diaLocal(new Date(agora().getTime() + cfg.validadeMinutos * 60e3)) : null);
         return {
           // O valor é o que o PC escreveu no caixa; o montante lido na página não conta.
-          estado: 'feita', valor, codigo, entidade: String(ref.entidade), referencia, validade: ref.validade || null,
+          estado: 'feita', valor, codigo, entidade: String(ref.entidade), referencia, validade,
           motivo: `Entidade ${ref.entidade} · Referência ${referencia}`
         };
       }

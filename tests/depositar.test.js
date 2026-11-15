@@ -443,3 +443,148 @@ test('hostsExtraDe: a Betclic só deixa abrir o caixa e a Placard mantém as sua
   assert.deepEqual(hostsExtraDe('placard', 'levantar'), []);
   assert.deepEqual(hostsExtraDe('placard'), ['safecharge.com']);
 });
+
+// ---------- LeBull ----------
+
+const LB_LOGIN = 'https://www.lebull.pt/#login';
+const LB_CAIXA = 'https://www.lebull.pt/#cashier';
+const LB_REFERENCIA = 'https://payments.lebull.pt/payment/initialize/api/1?sessionKey=undefined';
+
+/**
+ * O caixa da LeBull é um modal na própria página, com o MB WAY escolhido; o clique no Multibanco troca o h2.
+ * teimoso: o clique no Multibanco não muda nada. modal: false, o #cashier só abre o modal pelo «Depositar» do cabeçalho.
+ * codigo: 'invalido' (o Aplicar mostra a recusa) ou 'nao-elegivel'. depois: 'janela' (a referência numa janela nova) ou 'nada'.
+ */
+function cenarioLebull({ teimoso = false, modal = true, codigo = null, depois = 'janela', semMontanteNemCabecalho = false, aoChamar, ...resto } = {}) {
+  let dentro = false;
+  let aberto = modal;
+  const estado = { cliquesModal: 0, cliquesCabecalho: 0 };
+  const preparar = (w) => {
+    const d = w.document;
+    if (semMontanteNemCabecalho) {
+      // O modal aberto ainda sem o montante e o «Depositar» do cabeçalho escondido: só o do modal se vê.
+      d.querySelector('input[inputmode="decimal"]')?.remove();
+      for (const b of d.querySelectorAll('button')) if (b.textContent.trim() === 'Depositar' && !b.closest('.ModalContainer')) b.hidden = true;
+    }
+    d.addEventListener('submit', (e) => e.preventDefault());
+    d.addEventListener('click', (e) => {
+      const alvo = e.target;
+      if (alvo.closest?.('[data-qa-title="Multibanco"]') && !teimoso) {
+        d.querySelector('.e11hga6512').textContent = 'Efetuar depósito com Multibanco';
+      }
+      const botao = alvo.closest?.('button');
+      if (botao?.textContent.trim() === 'Depositar') {
+        if (botao.closest('.ModalContainer')) { estado.cliquesModal++; w.__depositou = true; } else { estado.cliquesCabecalho++; w.__abrir = true; }
+      }
+      if (botao?.textContent.trim() === 'Aplicar' && codigo === 'invalido') {
+        d.querySelector('.e1duowa80').textContent = `Código "${d.querySelector('input[name="promoCode"]').value}" inválido. Por favor contacta o Apoio ao cliente.`;
+      }
+    });
+    d.addEventListener('input', (e) => {
+      if (e.target.name === 'promoCode') e.target.form.querySelector('button').disabled = !e.target.value;
+    });
+  };
+  const caixa = () => {
+    const nome = !aberto ? 'lebull-com-sessao' : codigo === 'nao-elegivel' ? 'lebull-caixa-nao-elegivel' : 'lebull-caixa-mbway';
+    return { fixture: nome, preparar, caixa: fixture(nome), caixaUrl: LB_CAIXA, preparaCaixa: preparar };
+  };
+  const d = criarDriver({
+    paginas: { [LB_LOGIN]: () => ({ fixture: dentro ? 'lebull-com-sessao' : 'lebull-login' }), [LB_CAIXA]: caixa },
+    aoChamar: (nome, drv) => {
+      if (nome === 'clicarEntrar' && !dentro) { dentro = true; drv.abrir(LB_LOGIN); }
+      if (nome === 'clicarPorTexto' && drv.janela.__abrir && !aberto) { aberto = true; drv.abrir(LB_CAIXA); }
+      if (nome === 'confirmarDeposito' && drv.caixa?.__depositou && depois === 'janela' && !drv.janelas.length) drv.abrirJanela('lebull-referencia', LB_REFERENCIA);
+      aoChamar?.(nome, drv);
+    },
+    ...resto
+  });
+  return Object.assign(d, { estado });
+}
+const pedidoLebull = (extra = {}, parametros = {}) => pedido({ casino: 'lebull', ...extra }, { valor: 10, ...parametros });
+// 23:30 locais: mais 60 minutos já é o dia seguinte.
+const AS_23_30 = () => new Date(2026, 10, 15, 23, 30);
+const abriuPeloCabecalho = (d) => d.chamadas.filter(c => c.nome === 'clicarPorTexto' && JSON.stringify(c.args[0]) === '["depositar"]');
+
+test('lebull: #cashier sem modal → carrega no «Depositar» do cabeçalho uma vez e segue', async () => {
+  const d = cenarioLebull({ modal: false });
+  const r = await depositarDaConta(d, pedidoLebull({ ensaio: true }));
+  assert.deepEqual([r.estado, r.valor], ['ensaio', 10]);
+  const cliques = abriuPeloCabecalho(d);
+  assert.equal(cliques.length, 1);
+  assert.deepEqual(cliques[0].args[1], { exato: true, permissivo: false, fora: '.ModalContainer' });
+  assert.deepEqual([d.estado.cliquesCabecalho, d.estado.cliquesModal], [1, 0]);
+});
+
+test('lebull: modal aberto sem montante e cabeçalho escondido → o «Depositar» do modal nunca é premido', async () => {
+  const d = cenarioLebull({ semMontanteNemCabecalho: true });
+  const r = await depositarDaConta(d, pedidoLebull());
+  assert.deepEqual([r.estado, r.fase, r.motivo], ['falhada', 'caixa', 'O caixa não abriu']);
+  assert.equal(abriuPeloCabecalho(d).length, 1);
+  assert.deepEqual([d.estado.cliquesModal, d.estado.cliquesCabecalho], [0, 0]);
+  assert.ok(!d.nomes().includes('prepararDeposito'));
+});
+
+test('lebull: #cashier com o modal aberto não carrega no cabeçalho', async () => {
+  const d = cenarioLebull();
+  const r = await depositarDaConta(d, pedidoLebull({ ensaio: true }));
+  assert.equal(r.estado, 'ensaio');
+  assert.equal(abriuPeloCabecalho(d).length, 0);
+  assert.equal(d.estado.cliquesCabecalho, 0);
+});
+
+test('lebull: real → feita com entidade 52123, referência 607794617 lida da janela nova e validade = dia de agora + 60 min', async () => {
+  const d = cenarioLebull();
+  const r = await depositarDaConta(d, pedidoLebull({ agora: AS_23_30 }));
+  assert.deepEqual(
+    [r.estado, r.valor, r.entidade, r.referencia, r.validade, r.motivo],
+    ['feita', 10, '52123', '607794617', '2026-11-16', 'Entidade 52123 · Referência 607794617']
+  );
+  assert.deepEqual([d.estado.cliquesModal, d.estado.cliquesCabecalho], [1, 0]);
+  assert.ok(d.nomes().includes('janelas:lerReferenciaMB'));
+});
+
+test('lebull: ensaio pára antes de Depositar', async () => {
+  const d = cenarioLebull();
+  const r = await depositarDaConta(d, pedidoLebull({ ensaio: true }));
+  assert.deepEqual([r.estado, r.valor], ['ensaio', 10]);
+  assert.ok(!d.nomes().includes('confirmarDeposito'));
+  assert.equal(d.estado.cliquesModal, 0);
+  assert.match(d.caixa.document.querySelector('.e11hga6512').textContent, /Multibanco/);
+});
+
+test('lebull: com o MB WAY preso, falhada «caixa» e o botão nunca é premido', async () => {
+  const d = cenarioLebull({ teimoso: true });
+  const r = await depositarDaConta(d, pedidoLebull());
+  assert.deepEqual([r.estado, r.fase, r.motivo], ['falhada', 'caixa', 'O caixa ainda não escolheu o Multibanco']);
+  assert.deepEqual([d.estado.cliquesModal, d.estado.cliquesCabecalho], [0, 0]);
+  assert.ok(!d.nomes().includes('confirmarDeposito'));
+});
+
+test('lebull: «não elegível» com código → falhada «codigo» sem esperar as 40 voltas', async () => {
+  const d = cenarioLebull({ codigo: 'nao-elegivel' });
+  const r = await depositarDaConta(d, pedidoLebull({}, { codigo: 'BEMVINDO' }));
+  assert.deepEqual([r.estado, r.fase, r.codigo], ['falhada', 'codigo', 'BEMVINDO']);
+  assert.match(r.motivo, /^A LeBull diz: .*não elegível para bónus/);
+  assert.ok(conta(d, 'aplicarCodigo') < 10, `${conta(d, 'aplicarCodigo')} chamadas`);
+  assert.equal(d.estado.cliquesModal, 0);
+});
+
+test('lebull: código inválido → falhada «codigo»', async () => {
+  const d = cenarioLebull({ codigo: 'invalido' });
+  const r = await depositarDaConta(d, pedidoLebull({}, { codigo: 'BCITESTE99' }));
+  assert.deepEqual([r.estado, r.fase], ['falhada', 'codigo']);
+  assert.match(r.motivo, /BCITESTE99" inválido/);
+  assert.equal(d.estado.cliquesModal, 0);
+  assert.ok(!d.nomes().includes('confirmarDeposito'));
+});
+
+test('lebull: sem referência depois de Depositar → verificar', async () => {
+  const d = cenarioLebull({ depois: 'nada' });
+  const r = await depositarDaConta(d, pedidoLebull());
+  assert.deepEqual([r.estado, r.fase], ['verificar', 'resultado']);
+  assert.equal(d.estado.cliquesModal, 1);
+});
+
+test('hostsExtraDe(lebull): o caixa e a janela da referência', () => {
+  assert.deepEqual(hostsExtraDe('lebull'), ['www.lebull.pt', 'payments.lebull.pt']);
+});
