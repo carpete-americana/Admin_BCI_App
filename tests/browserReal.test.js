@@ -299,3 +299,19 @@ test('bloquear duas vezes não empilha ouvintes, e o fechar desfaz o bloqueio', 
   assert.equal(f.principal.pedidos.length, 0);
   assert.equal(f.principal.interceptar, false);
 });
+
+test('fechar fecha o browser mesmo que desfazer o bloqueio fique preso', async (t) => {
+  const f = puppeteerFalso();
+  const { driver, fechar } = await abrir(f);
+  await driver.bloquear(['forms.kycaid.com']);
+  f.principal.setRequestInterception = () => new Promise(() => {});
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let acabou = false;
+  const fim = fechar().then(() => { acabou = true; });
+  for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r));
+  t.mock.timers.tick(10 * 1000);
+  for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r));
+  assert.equal(acabou, true);
+  await fim;
+  assert.equal(f.estado.fechou, 1);
+});

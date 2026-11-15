@@ -183,7 +183,8 @@ async function abrirBrowserReal(casino, deps, { hostsExtra = [] } = {}) {
   const fechar = async () => {
     if (fechado) return;
     fechado = true;
-    await desfazerBloqueio?.();
+    // Um CDP preso a desfazer o bloqueio não pode impedir o close.
+    if (desfazerBloqueio) await comLimite(desfazerBloqueio(), FECHAR_MAX_MS, 'desbloquear').catch(() => {});
     try { await comLimite(browser.close(), FECHAR_MAX_MS, 'fechar'); } catch (e) {
       try { browser.process()?.kill(); } catch (e2) { /* já saiu */ }
     }
@@ -233,7 +234,7 @@ async function abrirBrowserReal(casino, deps, { hostsExtra = [] } = {}) {
         }
       },
       async url() { return principal.url(); },
-      // Só estes hosts são abortados e tudo o resto segue; a página é partilhada entre tarefas, por isso desfaz-se no fechar.
+      // Só estes hosts são abortados e tudo o resto segue; o fechar desfaz o bloqueio antes de fechar o browser.
       async bloquear(hosts) {
         await desfazerBloqueio?.();
         const decidir = (req) => {
