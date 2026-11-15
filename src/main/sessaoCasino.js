@@ -5,7 +5,7 @@
 const C = require('./vendor/casinos.js');
 
 const LIMITES_LOGIN = { sessao: 40, entrar: 60, popups: 15, cliquesExtra: 4 };
-const LIMITES_CAIXA = { menu: 20, item: 30, caixa: 60 };
+const LIMITES_CAIXA = { menu: 20, item: 30, caixa: 60, peloEndereco: 20 };
 // Dois códigos no máximo (o segundo quando o site recusa o primeiro); depois de escrever, até ~10 s para o ecrã sair.
 const LIMITES_CODIGO = { pedidos: 2, confirmar: 10, aceite: 20 };
 
@@ -239,14 +239,30 @@ async function entrar(driver, chave, fluxoPainel, credencial, { pedirCodigo } = 
 // Espera ao acaso entre passos, como uma pessoa.
 const pausa = (driver, min, max) => driver.esperar(Math.round(min + Math.random() * (max - min)));
 
+async function esperarCaixa(driver, cfg) {
+  for (let i = 0; i < LIMITES_CAIXA.caixa; i++) {
+    await pausa(driver, 400, 700);
+    if (await seguro(() => driver.naCaixa('caixaPronto', cfg), null)) return null;
+  }
+  return falhada('caixa', 'O caixa não abriu');
+}
+
 /**
  * Leva ao caixa: pelo endereço dele ou, com `cfg.viaMenu`, pela página inicial e pelo menu da conta.
+ * Com `cfg.abrirTexto`, se o endereço não abrir o caixa em ~5 s, carrega uma vez nesse botão (LeBull: «Depositar» do cabeçalho).
  * null com o campo do montante à vista (na página ou numa janela nova); falhada se não chegou lá.
  */
 async function abrirCaixa(driver, chave, cfg) {
   if (!cfg.viaMenu) {
     await driver.navegar(cfg.url);
-    return null;
+    if (!cfg.abrirTexto) return null;
+    for (let i = 0; i < LIMITES_CAIXA.peloEndereco; i++) {
+      if (await seguro(() => driver.naCaixa('caixaPronto', cfg), null)) return null;
+      await driver.esperar(250);
+    }
+    // Exato e só o que se vê, como no menu; com o caixa aberto já não se chegava aqui.
+    await seguro(() => driver.naPagina('clicarPorTexto', cfg.abrirTexto, { exato: true, permissivo: false }), false);
+    return esperarCaixa(driver, cfg);
   }
   const { conta, textos } = cfg.viaMenu;
   await driver.navegar(cfg.inicio);
@@ -268,12 +284,7 @@ async function abrirCaixa(driver, chave, cfg) {
     if (!clicou) await driver.esperar(250);
   }
   if (!clicou) return falhada('caixa', `Não encontrei «${textos[0]}» no menu da conta`);
-
-  for (let i = 0; i < LIMITES_CAIXA.caixa; i++) {
-    await pausa(driver, 400, 700);
-    if (await seguro(() => driver.naCaixa('caixaPronto', cfg), null)) return null;
-  }
-  return falhada('caixa', 'O caixa não abriu');
+  return esperarCaixa(driver, cfg);
 }
 
 module.exports = { entrar, sair, abrirCaixa, tratarCodigoTelemovel, seguro, falhada, verificar, recusarCookies, LIMITES_LOGIN };
