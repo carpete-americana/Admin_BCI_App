@@ -248,6 +248,15 @@
         textosSucesso: ['efectuado com sucesso', 'em processamento'],
         sucessoPrimeiro: true,
         textosErro: ['valide o seu iban', 'verifica o teu email']
+      },
+      // Só se lê o src do iframe, com o host bloqueado: o formulário nunca carrega. ecras (feita, em-analise, recusada, expirado) quando se virem.
+      verificacao: {
+        url: 'https://www.lebull.pt/profile/kyc',
+        iframe: 'iframe[src^="https://forms.kycaid.com/"]',
+        bloquear: ['forms.kycaid.com'],
+        ecras: {},
+        // Avisos do levantamento que pedem a verificação já.
+        textosAviso: ['valide o seu iban']
       }
     },
     solverde: {

@@ -142,6 +142,8 @@ async function levantarComEstado(driver, { casino, fluxo, credencial, parametros
     if (parametros?.lerSaldo) return { estado: 'ensaio', saldo: est.saldo, motivo: 'Saldo lido' };
 
     const nome = C.CASINOS[casino].nome;
+    // Com um destes textos a API pede a leitura da verificação (fase verificacao-pedida).
+    const textosVerificacao = C.CASINOS[casino].verificacao?.textosAviso || [];
     if (cfg.bonus) {
       // Levantar a meio de um bónus pode cancelá-lo: sem o total lido não se levanta às cegas.
       let total = null;
@@ -160,13 +162,13 @@ async function levantarComEstado(driver, { casino, fluxo, credencial, parametros
       // O aviso pode chegar antes do formulário: só é final se o formulário não aparecer em ~3 s.
       let aviso = null;
       for (let i = 0; i < LIMITES.avisos; i++) {
-        aviso = await seguro(() => driver.naCaixa('bloqueioDoLevantamento', cfg), null);
+        aviso = await seguro(() => driver.naCaixa('bloqueioDoLevantamento', cfg, textosVerificacao), null);
         // O ecrã de sucesso antes do clique é um pendente: não se pede outro, nem que o formulário apareça depois.
         if (aviso?.pendente) return { estado: 'saltada', saldo: est.saldo, motivo: `A ${nome} ainda tem um levantamento em processamento` };
         if (!aviso && await seguro(() => driver.naCaixa('caixaPronto', cfg), null)) break;
         await driver.esperar(250);
       }
-      if (aviso) return falhada('conta', `Conta por verificar na ${nome}: ${aviso.texto}`, { saldo: est.saldo });
+      if (aviso) return falhada(aviso.fase === 'verificacao-pedida' ? aviso.fase : 'conta', `Conta por verificar na ${nome}: ${aviso.texto}`, { saldo: est.saldo });
     }
 
     const conta = valorDoLevantamento(parametros, est.saldo, est.freebets ?? 0);
@@ -183,9 +185,9 @@ async function levantarComEstado(driver, { casino, fluxo, credencial, parametros
       if (prep?.ok) break;
       // Sem formulário o aviso pode ter chegado depois do ciclo dos avisos: pendente salta, bloqueio falha, nunca se clica.
       if (!volta && cfg.avisos) {
-        const aviso = await seguro(() => driver.naCaixa('bloqueioDoLevantamento', cfg), null);
+        const aviso = await seguro(() => driver.naCaixa('bloqueioDoLevantamento', cfg, textosVerificacao), null);
         if (aviso?.pendente) return { estado: 'saltada', saldo: est.saldo, motivo: `A ${nome} ainda tem um levantamento em processamento` };
-        if (aviso) return falhada('conta', `Conta por verificar na ${nome}: ${aviso.texto}`, { saldo: est.saldo });
+        if (aviso) return falhada(aviso.fase === 'verificacao-pedida' ? aviso.fase : 'conta', `Conta por verificar na ${nome}: ${aviso.texto}`, { saldo: est.saldo });
       }
       await driver.esperar(250);
     }
