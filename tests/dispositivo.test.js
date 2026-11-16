@@ -261,6 +261,25 @@ test('definirBrowserVisivel guarda a preferência por PC e browserVisivel() lê-
   assert.equal(await c.d.browserVisivel(), false);
 });
 
+test('a janela visível vale para o computador: grava-se no ficheiro partilhado e o da outra app manda', async () => {
+  let ficheiro = null;
+  const c = cenario({ extra: { janelaMaquina: { ler: async () => ficheiro, gravar: async (v) => { ficheiro = v; } } } });
+  await c.d.aceitar();
+  assert.deepEqual(await c.d.definirBrowserVisivel(true), { ok: true });
+  assert.equal(ficheiro, true);
+  // A outra app desligou-a: o registo desta diz true, mas o computador diz false.
+  ficheiro = false;
+  assert.equal(await c.d.browserVisivel(), false);
+  assert.equal((await c.d.estado()).browserVisivel, false);
+  // Ligada na outra app, sem nunca se ter mexido nesta.
+  const d = cenario({ extra: { janelaMaquina: { ler: async () => true, gravar: async () => {} } } });
+  await d.d.aceitar();
+  assert.equal(await d.d.browserVisivel(), true);
+  // Sem consentimento nesta app não abre à vista.
+  const e = cenario({ extra: { janelaMaquina: { ler: async () => true, gravar: async () => {} } } });
+  assert.equal(await e.d.browserVisivel(), false);
+});
+
 test('definirArranque sem consentimento recusa', async () => {
   const c = cenario();
   assert.deepEqual(await c.d.definirArranque(true), { ok: false });

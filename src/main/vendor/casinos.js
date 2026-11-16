@@ -254,7 +254,8 @@
         url: 'https://www.lebull.pt/profile/kyc',
         iframe: 'iframe[src^="https://forms.kycaid.com/"]',
         bloquear: ['forms.kycaid.com'],
-        ecras: {},
+        // Só a conta verificada foi vista (2026-11-16); em análise, recusada e expirado ainda faltam.
+        ecras: { feita: { seletor: 'h1, h2, h3, h4, p, span', textos: ['verificação completa'] } },
         // Avisos do levantamento que pedem a verificação já.
         textosAviso: ['valide o seu iban']
       }
