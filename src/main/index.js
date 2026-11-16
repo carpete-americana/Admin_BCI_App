@@ -48,6 +48,8 @@ const dispositivo = criarDispositivo({
   }),
   contasReais: () => encontrarBrowser() !== null,
   // Os perfis do Chrome e as partições antigas do Electron guardam sessões: saem juntos.
+  // As duas apps do mesmo Windows leem a mesma escolha de mostrar a janela.
+  janelaMaquina: require('./janelaMaquina').criarJanelaMaquina({ pasta: require('node:path').join(app.getPath('appData'), 'BCI Operacoes') }),
   limparParticoes: async () => (await limparPerfis(particoes.userData)) + (await limparParticoes(particoes)),
   lerToken: lerTokenDoAdmin,
   storage: ElectronStorage,

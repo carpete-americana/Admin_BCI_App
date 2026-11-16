@@ -61,6 +61,8 @@ function criarDispositivo(deps) {
   // Sem executorReal as contas reais não correm: o pacote pára e larga o resto.
   const executorReal = deps.executorReal || null;
   const limparParticoes = deps.limparParticoes || (async () => 0);
+  // Escolha de mostrar a janela partilhada com a outra app deste computador; null = nunca se escolheu.
+  const janelaMaquina = deps.janelaMaquina || { ler: async () => null, gravar: async () => {} };
   // Sem Chrome nem Edge o PC não anuncia levantamentos nem depósitos reais, e a fila não lhos entrega.
   const capacidades = () => (deps.contasReais && !deps.contasReais() ? CAPACIDADES.filter(c => !CAPACIDADES_REAIS.includes(c)) : CAPACIDADES);
   const aguardarLimite = deps.aguardarLimite || ((ms) => {
@@ -143,7 +145,7 @@ function criarDispositivo(deps) {
     if (!cfg) return vazio;
     const reg = await ler(s.chave);
     const consentido = !!reg?.consentido && reg.versao === cfg.versaoConsentimento;
-    return { disponivel: cfg.ativo, consentido, autostart: consentido && reg.autostart !== false, browserVisivel: consentido && reg.browserVisivel === true, versaoConsentimento: cfg.versaoConsentimento };
+    return { disponivel: cfg.ativo, consentido, autostart: consentido && reg.autostart !== false, browserVisivel: consentido && await visivelNoComputador(reg), versaoConsentimento: cfg.versaoConsentimento };
   }
 
   async function aceitar() {
@@ -248,14 +250,21 @@ function criarDispositivo(deps) {
     const reg = s && await ler(s.chave);
     if (typeof visivel !== 'boolean' || !reg?.consentido) return { ok: false };
     await storage.setItem(s.chave, { ...reg, browserVisivel: visivel });
+    await janelaMaquina.gravar(visivel).catch(() => {});
     return { ok: true };
+  }
+
+  /** O ficheiro do computador manda; sem ele, vale a escolha guardada nesta app. */
+  async function visivelNoComputador(reg) {
+    const doComputador = await janelaMaquina.ler().catch(() => null);
+    return typeof doComputador === 'boolean' ? doComputador : reg?.browserVisivel === true;
   }
 
   /** Lido ao abrir o browser de cada conta, por isso a escolha vale logo para a seguinte. */
   async function browserVisivel() {
     const s = await sessao();
     const reg = s && await ler(s.chave);
-    return !!reg?.consentido && reg.browserVisivel === true;
+    return !!reg?.consentido && await visivelNoComputador(reg);
   }
 
   async function desligarLocal(s, reg) {
